@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Billetera</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="header__left">
+          <h1 class="title">Billetera</h1>
+          <p class="subtitle">Planifica y marca tus gastos del día</p>
+        </div>
+        <div class="header__right">
+          <div class="kpi">
+            <div class="kpi__label">Saldo</div>
+            <div class="kpi__value" id="balanceValue">$0</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi__label">Ahorro</div>
+            <div class="kpi__value" id="savingsValue">$0</div>
+          </div>
+        </div>
+      </header>
+
+      <main class="grid">
+        <section class="card">
+          <h2 class="card__title">Acciones</h2>
+
+          <div class="actions actions--stack">
+            <button class="btn btn--primary btn--big" type="button" id="openIncomeBtn">Agregar ingreso / saldo</button>
+            <button class="btn btn--primary btn--big" type="button" id="openExpenseBtn">Agregar gasto planeado</button>
+            <button class="btn btn--big" type="button" id="openHistoryBtn">Ver historial</button>
+            <button class="btn btn--danger" type="button" id="clearAllBtn">Borrar todo</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="stats">
+            <div class="stat">
+              <div class="stat__label">Ingresos</div>
+              <div class="stat__value" id="incomeTotal">$0</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Gastos hechos</div>
+              <div class="stat__value" id="expenseDoneTotal">$0</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Gastos pendientes</div>
+              <div class="stat__value" id="expensePendingTotal">$0</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">Ahorro</div>
+              <div class="stat__value" id="savingsTotal">$0</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card card--budgets">
+          <h2 class="card__title">Presupuestos recurrentes</h2>
+
+          <details class="collapse">
+            <summary class="collapse__summary">Nueva regla</summary>
+            <form id="budgetForm" class="form">
+              <div class="row">
+                <label class="field">
+                  <span class="field__label">Frecuencia</span>
+                  <select class="select" id="budgetFrequency" required>
+                    <option value="weekly" selected>Semanal</option>
+                    <option value="monthly">Mensual</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span class="field__label">Monto planificado</span>
+                  <input class="input" type="number" id="budgetAmount" inputmode="decimal" min="0" step="0.01" placeholder="0" required />
+                </label>
+              </div>
+
+              <div class="row">
+                <label class="field">
+                  <span class="field__label">Categoría</span>
+                  <select class="select" id="budgetCategory" required>
+                    <option value="Comida">Comida</option>
+                    <option value="Transporte">Transporte</option>
+                    <option value="Casa">Casa</option>
+                    <option value="Salud">Salud</option>
+                    <option value="Ocio">Ocio</option>
+                    <option value="Deudas">Deudas</option>
+                    <option value="Otros" selected>Otros</option>
+                  </select>
+                </label>
+
+                <label class="field">
+                  <span class="field__label">Concepto</span>
+                  <input class="input" type="text" id="budgetTitle" placeholder="Ej: almuerzo" maxlength="60" required />
+                </label>
+              </div>
+
+              <div class="field">
+                <span class="field__label">Días</span>
+                <div class="week" id="budgetDays">
+                  <label class="chip"><input type="checkbox" value="1" checked />L</label>
+                  <label class="chip"><input type="checkbox" value="2" checked />M</label>
+                  <label class="chip"><input type="checkbox" value="3" checked />X</label>
+                  <label class="chip"><input type="checkbox" value="4" checked />J</label>
+                  <label class="chip"><input type="checkbox" value="5" checked />V</label>
+                  <label class="chip"><input type="checkbox" value="6" />S</label>
+                  <label class="chip"><input type="checkbox" value="0" />D</label>
+                </div>
+              </div>
+
+              <div class="actions">
+                <button class="btn btn--primary" type="submit">Guardar regla</button>
+              </div>
+            </form>
+          </details>
+
+          <div class="divider"></div>
+
+          <div class="row row--3">
+            <label class="field">
+              <span class="field__label">Fecha base</span>
+              <input class="input" type="date" id="budgetBaseDate" required />
+            </label>
+            <button class="btn" type="button" id="generateWeekBtn">Generar semana</button>
+            <button class="btn" type="button" id="generateMonthBtn">Generar mes</button>
+          </div>
+
+          <div class="list" id="budgetsList"></div>
+          <div class="empty" id="budgetsEmpty">No hay reglas aún.</div>
+        </section>
+
+      </main>
+
+      <footer class="footer">
+        <span class="footer__hint">Se guarda en este navegador (localStorage).</span>
+      </footer>
+    </div>
+
+    <dialog class="dialog" id="confirmDialog">
+      <div class="dialog__panel">
+        <h3 class="dialog__title" id="confirmTitle">Confirmar</h3>
+        <p class="dialog__text" id="confirmText"></p>
+        <div class="dialog__actions">
+          <button class="btn" id="confirmCancel" type="button">Cancelar</button>
+          <button class="btn btn--danger" id="confirmOk" type="button">Sí</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="dialog" id="historyDialog">
+      <div class="dialog__panel dialog__panel--wide">
+        <div class="card__head">
+          <h3 class="dialog__title">Historial de gastos</h3>
+          <div class="filters">
+            <label class="field field--inline">
+              <span class="field__label">Ver fecha</span>
+              <input class="input" type="date" id="filterDate" />
+            </label>
+            <button class="btn" type="button" id="filterTodayBtn">Hoy</button>
+            <button class="btn" type="button" id="filterAllBtn">Todas</button>
+            <button class="btn" type="button" id="historyCancel">Cerrar</button>
+          </div>
+        </div>
+
+        <div class="list" id="expensesList"></div>
+        <div class="empty" id="emptyState">No hay gastos para mostrar.</div>
+      </div>
+    </dialog>
+
+    <dialog class="dialog" id="actualAmountDialog">
+      <div class="dialog__panel">
+        <h3 class="dialog__title">Confirmar gasto</h3>
+        <p class="dialog__text" id="actualAmountText"></p>
+        <form id="actualAmountForm" class="form">
+          <label class="field">
+            <span class="field__label">Monto real</span>
+            <input class="input" type="number" id="actualAmountInput" inputmode="decimal" min="0" step="0.01" placeholder="0" required />
+          </label>
+          <div class="dialog__actions">
+            <button class="btn" type="button" id="actualAmountCancel">Cancelar</button>
+            <button class="btn" type="button" id="actualAmountUsePlan">Usar plan</button>
+            <button class="btn btn--primary" type="submit" id="actualAmountOk">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog class="dialog" id="incomeDialog">
+      <div class="dialog__panel">
+        <h3 class="dialog__title">Ingreso / saldo</h3>
+        <p class="dialog__text" id="incomeBalanceText"></p>
+        <form id="incomeForm" class="form">
+          <div class="row">
+            <label class="field">
+              <span class="field__label">Fecha</span>
+              <input class="input" type="date" id="incomeDate" required />
+            </label>
+
+            <label class="field">
+              <span class="field__label">Monto</span>
+              <input class="input" type="number" id="incomeAmount" inputmode="decimal" min="0" step="0.01" placeholder="0" required />
+            </label>
+          </div>
+
+          <label class="field">
+            <span class="field__label">Detalle</span>
+            <input class="input" type="text" id="incomeNote" placeholder="Ej: sueldo, venta, etc." maxlength="60" />
+          </label>
+
+          <div class="dialog__actions">
+            <button class="btn" type="button" id="incomeCancel">Cancelar</button>
+            <button class="btn" type="button" id="setInitialBalanceBtn">Establecer como saldo inicial</button>
+            <button class="btn btn--primary" type="submit">Agregar ingreso</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog class="dialog" id="expenseDialog">
+      <div class="dialog__panel">
+        <h3 class="dialog__title">Nuevo gasto planeado</h3>
+        <form id="expenseForm" class="form">
+          <div class="row">
+            <label class="field">
+              <span class="field__label">Fecha</span>
+              <input class="input" type="date" id="expenseDate" required />
+            </label>
+
+            <label class="field">
+              <span class="field__label">Monto planificado</span>
+              <input class="input" type="number" id="expenseAmount" inputmode="decimal" min="0" step="0.01" placeholder="0" required />
+            </label>
+          </div>
+
+          <div class="row">
+            <label class="field">
+              <span class="field__label">Categoría</span>
+              <select class="select" id="expenseCategory" required>
+                <option value="Comida">Comida</option>
+                <option value="Transporte">Transporte</option>
+                <option value="Casa">Casa</option>
+                <option value="Salud">Salud</option>
+                <option value="Ocio">Ocio</option>
+                <option value="Deudas">Deudas</option>
+                <option value="Otros" selected>Otros</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span class="field__label">Concepto</span>
+              <input class="input" type="text" id="expenseTitle" placeholder="Ej: almuerzo" maxlength="60" required />
+            </label>
+          </div>
+
+          <label class="field">
+            <span class="field__label">Notas (opcional)</span>
+            <input class="input" type="text" id="expenseNote" placeholder="Ej: con amigos" maxlength="80" />
+          </label>
+
+          <div class="dialog__actions">
+            <button class="btn" type="button" id="expenseCancel">Cancelar</button>
+            <button class="btn btn--primary" type="submit">Agregar gasto</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog class="dialog" id="editDialog">
+      <div class="dialog__panel">
+        <h3 class="dialog__title">Editar gasto</h3>
+        <form id="editForm" class="form">
+          <div class="row">
+            <label class="field">
+              <span class="field__label">Fecha</span>
+              <input class="input" type="date" id="editDate" required />
+            </label>
+
+            <label class="field">
+              <span class="field__label">Monto planificado</span>
+              <input class="input" type="number" id="editPlanned" inputmode="decimal" min="0" step="0.01" required />
+            </label>
+          </div>
+
+          <div class="row">
+            <label class="field">
+              <span class="field__label">Monto real (si se gastó)</span>
+              <input class="input" type="number" id="editActual" inputmode="decimal" min="0" step="0.01" placeholder="0" />
+            </label>
+
+            <label class="field">
+              <span class="field__label">Estado</span>
+              <select class="select" id="editStatus" required>
+                <option value="pending" selected>Pendiente</option>
+                <option value="done">Hecho</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="row">
+            <label class="field">
+              <span class="field__label">Categoría</span>
+              <select class="select" id="editCategory" required>
+                <option value="Comida">Comida</option>
+                <option value="Transporte">Transporte</option>
+                <option value="Casa">Casa</option>
+                <option value="Salud">Salud</option>
+                <option value="Ocio">Ocio</option>
+                <option value="Deudas">Deudas</option>
+                <option value="Otros">Otros</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span class="field__label">Concepto</span>
+              <input class="input" type="text" id="editTitle" maxlength="60" required />
+            </label>
+          </div>
+
+          <label class="field">
+            <span class="field__label">Notas (opcional)</span>
+            <input class="input" type="text" id="editNote" maxlength="80" />
+          </label>
+
+          <div class="dialog__actions">
+            <button class="btn" type="button" id="editCancel">Cancelar</button>
+            <button class="btn btn--primary" type="submit" id="editSave">Guardar</button>
+          </div>
+        </form>
+      </div>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
