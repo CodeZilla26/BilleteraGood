@@ -4,24 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BilleteraState,
   Expense,
-  Frequency,
   STORAGE_KEY,
   Totals,
-  addBudgetRule,
   addExpense,
   addIncome,
   computeTotals,
   defaultState,
-  deleteBudgetRule,
   deleteExpense,
-  generateForRange,
   loadStateFromStorage,
   normalizeState,
-  parseISODate,
   saveStateToStorage,
   setExpenseDoneWithActual,
   setExpensePending,
-  startOfWeekMonday,
   updateExpense,
 } from "@/lib/billetera";
 
@@ -43,11 +37,6 @@ export type BilleteraActions = {
   updateExpense: (expenseId: string, patch: Partial<Expense>) => void;
   markExpenseDone: (expenseId: string, actualAmount: number) => void;
   markExpensePending: (expenseId: string) => void;
-
-  addBudgetRule: (input: { frequency: Frequency; amount: number; category: string; title: string; days: number[] }) => void;
-  deleteBudgetRule: (ruleId: string) => void;
-  generateWeek: (baseISO: string) => void;
-  generateMonth: (baseISO: string) => void;
 };
 
 export function useBilleteraState(storageKey = STORAGE_KEY): {
@@ -125,25 +114,6 @@ export function useBilleteraState(storageKey = STORAGE_KEY): {
       },
       markExpensePending(expenseId: string) {
         setState((prev) => setExpensePending(prev, expenseId));
-      },
-
-      addBudgetRule(input: { frequency: Frequency; amount: number; category: string; title: string; days: number[] }) {
-        setState((prev) => addBudgetRule(prev, input));
-      },
-      deleteBudgetRule(ruleId: string) {
-        setState((prev) => deleteBudgetRule(prev, ruleId));
-      },
-      generateWeek(baseISO: string) {
-        const base = parseISODate(baseISO);
-        const start = startOfWeekMonday(base);
-        const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
-        setState((prev) => generateForRange(prev, start, end));
-      },
-      generateMonth(baseISO: string) {
-        const base = parseISODate(baseISO);
-        const start = new Date(base.getFullYear(), base.getMonth(), 1);
-        const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-        setState((prev) => generateForRange(prev, start, end));
       },
     };
   }, []);

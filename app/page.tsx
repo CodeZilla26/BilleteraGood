@@ -44,13 +44,6 @@ export default function Home() {
   const [editTitle, setEditTitle] = useState("");
   const [editNote, setEditNote] = useState("");
 
-  const [budgetFrequency, setBudgetFrequency] = useState<"weekly" | "monthly">("weekly");
-  const [budgetAmount, setBudgetAmount] = useState("");
-  const [budgetCategory, setBudgetCategory] = useState("Comida");
-  const [budgetTitle, setBudgetTitle] = useState("");
-  const [budgetDays, setBudgetDays] = useState<number[]>([1, 2, 3, 4, 5]);
-  const [budgetBaseDate, setBudgetBaseDate] = useState(() => todayISO());
-
   const expenses = useMemo(() => {
     const filterDate = (state.ui.filterDate || "").trim();
     return state.expenses
@@ -227,55 +220,6 @@ export default function Home() {
     actions.setFilterDate("");
   };
 
-  const toggleBudgetDay = (d: number) => {
-    setBudgetDays((prev) => {
-      if (prev.includes(d)) return prev.filter((x) => x !== d);
-      return [...prev, d].sort((a, b) => a - b);
-    });
-  };
-
-  const onSubmitBudget = (e: React.FormEvent) => {
-    e.preventDefault();
-    const amount = parseAmount(budgetAmount);
-    if (!budgetTitle.trim()) return;
-    if (!(amount > 0)) return;
-    if (budgetDays.length === 0) return;
-    actions.addBudgetRule({
-      frequency: budgetFrequency,
-      amount,
-      category: budgetCategory,
-      title: budgetTitle.trim(),
-      days: budgetDays,
-    });
-    setBudgetAmount("");
-    setBudgetTitle("");
-  };
-
-  const onDeleteBudget = async (ruleId: string, title: string) => {
-    const ok = await openConfirm({
-      title: "Borrar regla",
-      text: `¿Borrar la regla "${title}"?`,
-      okText: "Borrar",
-    });
-    if (!ok) return;
-    actions.deleteBudgetRule(ruleId);
-  };
-
-  const onGenerateWeek = () => {
-    const base = budgetBaseDate || todayISO();
-    actions.generateWeek(base);
-  };
-
-  const onGenerateMonth = () => {
-    const base = budgetBaseDate || todayISO();
-    actions.generateMonth(base);
-  };
-
-  const daysLabel = (days: number[]) => {
-    const map: Record<number, string> = { 1: "L", 2: "M", 3: "X", 4: "J", 5: "V", 6: "S", 0: "D" };
-    return (days || []).map((d) => map[d]).join(" ") || "-";
-  };
-
   const filterToday = () => actions.setFilterDate(todayISO());
   const filterAll = () => actions.setFilterDate("");
 
@@ -323,18 +267,14 @@ export default function Home() {
               <div className="mt-1 text-xl font-semibold">{formatMoney(totals.expenseDone)}</div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4 shadow-sm">
-              <div className="text-sm text-zinc-400">Pendientes (plan)</div>
-              <div className="mt-1 text-xl font-semibold">{formatMoney(totals.expensePending)}</div>
-            </div>
-            <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4 shadow-sm">
               <div className="text-sm text-zinc-400">Ahorro</div>
               <div className="mt-1 text-xl font-semibold">{formatMoney(totals.savingsDone)}</div>
             </div>
           </div>
         </header>
 
-        <section className="grid gap-4 md:grid-cols-12">
-          <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-4 shadow-sm backdrop-blur md:col-span-7">
+        <section className="grid gap-4">
+          <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-4 shadow-sm backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <div className="text-sm font-medium">Gastos</div>
@@ -444,144 +384,6 @@ export default function Home() {
               >
                 Borrar todo
               </button>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-4 shadow-sm backdrop-blur md:col-span-5">
-            <div className="text-sm font-medium">Presupuestos</div>
-            <div className="text-sm text-zinc-400">Reglas semanales/mensuales por días. Luego genera semana o mes.</div>
-
-            <form className="mt-3 grid gap-2" onSubmit={onSubmitBudget}>
-              <div className="grid grid-cols-2 gap-2">
-                <select
-                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  value={budgetFrequency}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                    setBudgetFrequency(e.target.value as ("weekly" | "monthly"))
-                  }
-                >
-                  <option value="weekly">Semanal</option>
-                  <option value="monthly">Mensual</option>
-                </select>
-                <input
-                  inputMode="decimal"
-                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  placeholder="Monto"
-                  value={budgetAmount}
-                  onChange={(e) => setBudgetAmount(e.target.value)}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <select
-                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  value={budgetCategory}
-                  onChange={(e) => setBudgetCategory(e.target.value)}
-                >
-                  <option value="Comida">Comida</option>
-                  <option value="Transporte">Transporte</option>
-                  <option value="Casa">Casa</option>
-                  <option value="Salud">Salud</option>
-                  <option value="Otros">Otros</option>
-                </select>
-                <input
-                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  placeholder="Título"
-                  value={budgetTitle}
-                  onChange={(e) => setBudgetTitle(e.target.value)}
-                />
-              </div>
-
-              <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
-                <div className="text-xs font-medium text-zinc-300">Días</div>
-                <div className="mt-2 grid grid-cols-7 gap-1 text-xs">
-                  {[
-                    { d: 1, t: "L" },
-                    { d: 2, t: "M" },
-                    { d: 3, t: "X" },
-                    { d: 4, t: "J" },
-                    { d: 5, t: "V" },
-                    { d: 6, t: "S" },
-                    { d: 0, t: "D" },
-                  ].map((x) => (
-                    <button
-                      key={x.d}
-                      type="button"
-                      className={`rounded-lg px-2 py-2 text-center font-medium ring-1 ${
-                        budgetDays.includes(x.d)
-                          ? "bg-emerald-500 text-white ring-emerald-500"
-                          : "bg-zinc-950/30 text-zinc-200 ring-white/10 hover:bg-zinc-950/50"
-                      }`}
-                      onClick={() => toggleBudgetDay(x.d)}
-                    >
-                      {x.t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-400"
-              >
-                Agregar regla
-              </button>
-            </form>
-
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <input
-                type="date"
-                className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                value={budgetBaseDate}
-                onChange={(e) => setBudgetBaseDate(e.target.value)}
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
-                  onClick={onGenerateWeek}
-                >
-                  Semana
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
-                  onClick={onGenerateMonth}
-                >
-                  Mes
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4 max-h-[380px] overflow-auto pr-1">
-              {state.budgets.length === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-zinc-950/30 p-4 text-sm text-zinc-300">Aún no hay reglas.</div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {state.budgets.map((r) => (
-                    <div key={r.id} className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="font-semibold">{r.title}</div>
-                            <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-zinc-200 ring-1 ring-white/10">
-                              {r.frequency === "weekly" ? "Semanal" : "Mensual"} · {r.category}
-                            </span>
-                          </div>
-                          <div className="mt-1 text-xs text-zinc-400">Días: {daysLabel(r.days)}</div>
-                          <div className="mt-1 text-xs text-zinc-400">Plan: {formatMoney(Number(r.amount || 0))}</div>
-                        </div>
-                        <button
-                          type="button"
-                          className="rounded-xl bg-zinc-950/40 px-3 py-1.5 text-xs font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-rose-500/15 hover:ring-rose-400/20"
-                          onClick={() => onDeleteBudget(r.id, r.title)}
-                        >
-                          Borrar
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         </section>
