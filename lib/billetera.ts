@@ -2,6 +2,8 @@ export const STORAGE_KEY = "billetera.v1";
 
 export type Frequency = "weekly" | "monthly";
 
+export type PlanCadence = "daily" | "weekly" | "monthly";
+
 export type Income = {
   id: string;
   date: string;
@@ -33,11 +35,22 @@ export type BudgetRule = {
   createdAt: number;
 };
 
+export type PlanRule = {
+  id: string;
+  cadence: PlanCadence;
+  amount: number;
+  category: string;
+  title: string;
+  days: number[];
+  createdAt: number;
+};
+
 export type BilleteraState = {
   initialBalance: number;
   incomes: Income[];
   expenses: Expense[];
   budgets: BudgetRule[];
+  planRules: PlanRule[];
   ui: {
     filterDate: string;
   };
@@ -111,6 +124,7 @@ export function defaultState(): BilleteraState {
     incomes: [],
     expenses: [],
     budgets: [],
+    planRules: [],
     ui: { filterDate: "" },
   };
 }
@@ -125,6 +139,9 @@ export function normalizeState(input: BilleteraState): { state: BilleteraState; 
     incomes: Array.isArray(input.incomes) ? input.incomes : [],
     expenses: Array.isArray(input.expenses) ? input.expenses : [],
     budgets: Array.isArray(input.budgets) ? input.budgets : [],
+    planRules: Array.isArray((input as unknown as { planRules?: unknown }).planRules)
+      ? ((input as unknown as { planRules: PlanRule[] }).planRules as PlanRule[])
+      : [],
     ui: {
       filterDate: input.ui && typeof input.ui.filterDate === "string" ? input.ui.filterDate : "",
     },
@@ -153,6 +170,7 @@ export function normalizeState(input: BilleteraState): { state: BilleteraState; 
   });
 
   if (!Array.isArray(input.budgets)) changed = true;
+  if (!Array.isArray((input as unknown as { planRules?: unknown }).planRules)) changed = true;
   if (!Array.isArray(input.incomes)) changed = true;
   if (!Array.isArray(input.expenses)) changed = true;
 
@@ -277,6 +295,114 @@ export function setExpenseDoneWithActual(state: BilleteraState, expenseId: strin
 
 export function setExpensePending(state: BilleteraState, expenseId: string): BilleteraState {
   return updateExpense(state, expenseId, { done: false, actualAmount: 0 });
+}
+
+export function addPlanRule(
+  state: BilleteraState,
+  input: { cadence: PlanCadence; amount: number; category: string; title: string; days: number[] }
+): BilleteraState {
+  const rule: PlanRule = {
+    id: uid(),
+    cadence: input.cadence,
+    amount: Number(input.amount || 0),
+    category: input.category,
+    title: input.title,
+    days: Array.isArray(input.days) ? input.days : [],
+    createdAt: Date.now(),
+  };
+  return {
+    ...state,
+    planRules: [rule, ...state.planRules],
+  };
+}
+
+export function deletePlanRule(state: BilleteraState, ruleId: string): BilleteraState {
+  return {
+    ...state,
+    planRules: state.planRules.filter((x) => x.id !== ruleId),
+  };
+}
+
+export function updatePlanRule(
+  state: BilleteraState,
+  ruleId: string,
+  patch: Partial<Pick<PlanRule, "cadence" | "amount" | "category" | "title" | "days">>
+): BilleteraState {
+  const idx = state.planRules.findIndex((x) => x.id === ruleId);
+  if (idx === -1) return state;
+
+  const next = state.planRules.slice();
+  const prev = next[idx];
+  const cadence = patch.cadence ?? prev.cadence;
+  const days = Array.isArray(patch.days) ? patch.days : prev.days;
+
+  next[idx] = {
+    ...prev,
+    cadence,
+    amount: patch.amount !== undefined ? Number(patch.amount || 0) : prev.amount,
+    category: patch.category !== undefined ? patch.category : prev.category,
+    title: patch.title !== undefined ? patch.title : prev.title,
+    days: cadence === "daily" ? [] : days,
+  };
+
+  return {
+    ...state,
+    planRules: next,
+  };
+}
+
+function shouldGenerateForDate(rule: PlanRule, date: Date) {
+  if (rule.cadence === "daily") return true;
+  if (!Array.isArray(rule.days) || rule.days.length === 0) return false;
+  if (rule.cadence === "weekly") {
+    return rule.days.includes(date.getDay());
+  }
+  const dom = date.getDate();
+  return rule.days.includes(dom);
+}
+
+export function generateFromPlanForRange(state: BilleteraState, startDate: Date, endDate: Date): BilleteraState {
+  const rules = Array.isArray(state.planRules) ? state.planRules : [];
+  const existingKeys = new Set(
+    state.expenses
+      .filter((x) => x.sourceBudgetId)
+      .map((x) => `${x.sourceBudgetId}|${x.date}`)
+  );
+
+  let nextState = state;
+  const cursor = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+  while (cursor <= endDate) {
+    const iso = dateToISO(cursor);
+    for (const r of rules) {
+      if (!shouldGenerateForDate(r, cursor)) continue;
+      const key = `${r.id}|${iso}`;
+      if (existingKeys.has(key)) continue;
+      existingKeys.add(key);
+      nextState = addExpense(nextState, {
+        date: iso,
+        plannedAmount: Number(r.amount || 0),
+        category: r.category,
+        title: r.title,
+        note: "",
+        actualAmount: 0,
+        done: false,
+        sourceBudgetId: r.id,
+      });
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return nextState;
+}
+
+export function generateFromPlanForDate(state: BilleteraState, isoDate: string): BilleteraState {
+  const d = parseISODate(isoDate);
+  return generateFromPlanForRange(state, d, d);
+}
+
+export function listExpenseDates(state: BilleteraState): string[] {
+  const set = new Set(state.expenses.map((x) => x.date).filter(Boolean));
+  return Array.from(set).sort((a, b) => (a < b ? 1 : -1));
 }
 
 export function addBudgetRule(

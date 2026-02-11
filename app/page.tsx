@@ -2,8 +2,12 @@
 
 import { useMemo, useRef, useState } from "react";
 import {
+  dateToISO,
   formatMoney,
+  listExpenseDates,
   parseAmount,
+  parseISODate,
+  startOfWeekMonday,
   todayISO,
 } from "@/lib/billetera";
 import { useBilleteraState } from "@/lib/useBilleteraState";
@@ -44,6 +48,20 @@ export default function Home() {
   const [editTitle, setEditTitle] = useState("");
   const [editNote, setEditNote] = useState("");
 
+  const [planOpen, setPlanOpen] = useState(false);
+  const [planCadence, setPlanCadence] = useState<"daily" | "weekly" | "monthly">("daily");
+  const [planAmount, setPlanAmount] = useState("");
+  const [planCategory, setPlanCategory] = useState("Comida");
+  const [planTitle, setPlanTitle] = useState("");
+  const [planDays, setPlanDays] = useState<number[]>([]);
+  const [planBaseDate, setPlanBaseDate] = useState(() => todayISO());
+  const [editingPlanRuleId, setEditingPlanRuleId] = useState<string | null>(null);
+
+  const [rangeOpen, setRangeOpen] = useState(false);
+
+  const [rangeStart, setRangeStart] = useState(() => todayISO());
+  const [rangeEnd, setRangeEnd] = useState(() => todayISO());
+
   const expenses = useMemo(() => {
     const filterDate = (state.ui.filterDate || "").trim();
     return state.expenses
@@ -55,12 +73,138 @@ export default function Home() {
       });
   }, [state.expenses, state.ui.filterDate]);
 
+  const existingDates = useMemo(() => {
+    return listExpenseDates(state);
+  }, [state]);
+
+  const checklistDate = (state.ui.filterDate || "").trim() || todayISO();
+  const dailyChecklist = useMemo(() => {
+    return state.expenses
+      .filter((x) => x.date === checklistDate)
+      .slice()
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }, [state.expenses, checklistDate]);
+
+  const rangeSummary = useMemo(() => {
+    const start = (rangeStart || "").trim();
+    const end = (rangeEnd || "").trim();
+    if (!start || !end) return null;
+    const a = parseISODate(start);
+    const b = parseISODate(end);
+    const startIso = dateToISO(a <= b ? a : b);
+    const endIso = dateToISO(a <= b ? b : a);
+    const items = state.expenses.filter((x) => x.date >= startIso && x.date <= endIso);
+
+    const planned = items.reduce((acc, x) => acc + Number(x.plannedAmount || 0), 0);
+    const actual = items.filter((x) => x.done).reduce((acc, x) => acc + Number(x.actualAmount || 0), 0);
+    const savings = items
+      .filter((x) => x.done)
+      .reduce((acc, x) => acc + (Number(x.plannedAmount || 0) - Number(x.actualAmount || 0)), 0);
+
+    const byCategory = new Map<string, { planned: number; actual: number }>();
+    for (const it of items) {
+      const key = it.category || "Otros";
+      const prev = byCategory.get(key) || { planned: 0, actual: 0 };
+      prev.planned += Number(it.plannedAmount || 0);
+      if (it.done) prev.actual += Number(it.actualAmount || 0);
+      byCategory.set(key, prev);
+    }
+
+    const categories = Array.from(byCategory.entries())
+      .map(([category, v]) => ({ category, planned: v.planned, actual: v.actual }))
+      .sort((x, y) => y.actual - x.actual);
+
+    return { startIso, endIso, count: items.length, planned, actual, savings, categories };
+  }, [rangeStart, rangeEnd, state.expenses]);
+
   const openConfirm = (cfg: { title: string; text: string; okText?: string }) => {
     return new Promise<boolean>((resolve) => {
       setConfirmConfig({ title: cfg.title, text: cfg.text, okText: cfg.okText || "Sí" });
       confirmResolverRef.current = resolve;
       setConfirmOpen(true);
     });
+  };
+
+  const resetPlanForm = () => {
+    setPlanCadence("daily");
+    setPlanAmount("");
+    setPlanCategory("Comida");
+    setPlanTitle("");
+    setPlanDays([]);
+    setEditingPlanRuleId(null);
+  };
+
+  const onEditPlanRule = (ruleId: string) => {
+    const rule = state.planRules.find((x) => x.id === ruleId);
+    if (!rule) return;
+    setEditingPlanRuleId(rule.id);
+    setPlanCadence(rule.cadence);
+    setPlanAmount(String(rule.amount ?? ""));
+    setPlanCategory(rule.category);
+    setPlanTitle(rule.title);
+    setPlanDays(Array.isArray(rule.days) ? rule.days : []);
+  };
+
+  const setWeeklyPreset = (preset: "lv" | "all" | "weekend") => {
+    if (preset === "lv") return setPlanDays([1, 2, 3, 4, 5]);
+    if (preset === "weekend") return setPlanDays([0, 6]);
+    return setPlanDays([0, 1, 2, 3, 4, 5, 6]);
+  };
+
+  const setMonthlyPreset = (preset: "first" | "fifteenth" | "firstAndFifteenth" | "allDays") => {
+    if (preset === "first") return setPlanDays([1]);
+    if (preset === "fifteenth") return setPlanDays([15]);
+    if (preset === "firstAndFifteenth") return setPlanDays([1, 15]);
+    return setPlanDays(Array.from({ length: 31 }, (_, i) => i + 1));
+  };
+
+  const onSubmitPlanRule = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseAmount(planAmount);
+    const title = (planTitle || "").trim();
+    const days = Array.isArray(planDays) ? planDays : [];
+
+    if (!title) return;
+    if (amount <= 0) return;
+    if (planCadence !== "daily" && (!Array.isArray(days) || days.length === 0)) return;
+
+    if (editingPlanRuleId) {
+      actions.updatePlanRule(editingPlanRuleId, { cadence: planCadence, amount, category: planCategory, title, days });
+    } else {
+      actions.addPlanRule({ cadence: planCadence, amount, category: planCategory, title, days });
+    }
+    resetPlanForm();
+    setPlanOpen(false);
+  };
+
+  const onDeletePlanRule = async (ruleId: string) => {
+    const rule = state.planRules.find((x) => x.id === ruleId);
+    if (!rule) return;
+    const ok = await openConfirm({
+      title: "Borrar regla",
+      text: `¿Borrar "${rule.title}"?`,
+      okText: "Borrar",
+    });
+    if (!ok) return;
+    actions.deletePlanRule(ruleId);
+  };
+
+  const generateForToday = () => {
+    const base = (planBaseDate || "").trim() || todayISO();
+    actions.generatePlannedForDate(base);
+    actions.setFilterDate(base);
+  };
+
+  const generateForWeek = () => {
+    const base = (planBaseDate || "").trim() || todayISO();
+    actions.generatePlannedForWeek(base);
+    actions.setFilterDate(base);
+  };
+
+  const generateForMonth = () => {
+    const base = (planBaseDate || "").trim() || todayISO();
+    actions.generatePlannedForMonth(base);
+    actions.setFilterDate(base);
   };
 
   const closeConfirm = (ok: boolean) => {
@@ -223,6 +367,22 @@ export default function Home() {
   const filterToday = () => actions.setFilterDate(todayISO());
   const filterAll = () => actions.setFilterDate("");
 
+  const setRangePresetWeek = () => {
+    const base = parseISODate((rangeStart || "").trim() || todayISO());
+    const start = startOfWeekMonday(base);
+    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
+    setRangeStart(dateToISO(start));
+    setRangeEnd(dateToISO(end));
+  };
+
+  const setRangePresetMonth = () => {
+    const base = parseISODate((rangeStart || "").trim() || todayISO());
+    const start = new Date(base.getFullYear(), base.getMonth(), 1);
+    const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+    setRangeStart(dateToISO(start));
+    setRangeEnd(dateToISO(end));
+  };
+
   return (
     <div className="min-h-dvh bg-zinc-950 text-zinc-100">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(900px_circle_at_20%_10%,rgba(99,102,241,0.14),transparent_55%),radial-gradient(900px_circle_at_80%_20%,rgba(16,185,129,0.10),transparent_55%),radial-gradient(900px_circle_at_50%_100%,rgba(244,63,94,0.06),transparent_60%)]" />
@@ -253,6 +413,13 @@ export default function Home() {
                 onClick={() => setHistoryOpen(true)}
               >
                 Historial
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-zinc-900/60 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-900"
+                onClick={() => setRangeOpen(true)}
+              >
+                Resumen
               </button>
             </div>
           </div>
@@ -304,7 +471,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="mt-3 max-h-[420px] overflow-auto pr-1">
+            <div className="app-scroll mt-3 max-h-[420px] overflow-auto pr-1">
               {expenses.length === 0 ? (
                 <div className="rounded-xl border border-white/10 bg-zinc-950/30 p-4 text-sm text-zinc-300">No hay gastos para este filtro.</div>
               ) : (
@@ -377,17 +544,436 @@ export default function Home() {
 
             <div className="mt-4 flex items-center justify-between gap-3">
               <div className="text-sm text-zinc-400">Acciones</div>
-              <button
-                type="button"
-                className="rounded-xl bg-rose-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-400"
-                onClick={onClearAll}
-              >
-                Borrar todo
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
+                  onClick={() => setPlanOpen(true)}
+                >
+                  Planificación
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl bg-rose-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-400"
+                  onClick={onClearAll}
+                >
+                  Borrar todo
+                </button>
+              </div>
             </div>
           </div>
         </section>
       </main>
+
+      {planOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={() => setPlanOpen(false)}>
+          <div
+            className="w-full max-w-2xl rounded-2xl border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">Planificación</div>
+                <div className="text-sm text-zinc-300">Crea reglas y genera gastos automáticamente.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
+                onClick={() => {
+                  resetPlanForm();
+                  setPlanOpen(false);
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-4">
+              <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+                <div className="text-sm font-medium">Checklist</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    type="date"
+                    className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    value={checklistDate}
+                    onChange={(e) => actions.setFilterDate(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-400"
+                    onClick={generateForToday}
+                  >
+                    Generar
+                  </button>
+                </div>
+                <div className="app-scroll mt-3 max-h-[260px] overflow-auto pr-1">
+                  {dailyChecklist.length === 0 ? (
+                    <div className="rounded-xl border border-white/10 bg-zinc-950/20 p-3 text-sm text-zinc-300">No hay gastos.</div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {dailyChecklist.map((exp) => (
+                        <div
+                          key={exp.id}
+                          className={`grid grid-cols-[28px_1fr_auto] items-start gap-3 rounded-2xl border p-3 ${
+                            exp.done ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/10 bg-zinc-950/20"
+                          }`}
+                        >
+                          <div className="pt-1">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(exp.done)}
+                              onChange={(e) => onToggleDone(exp.id, e.target.checked)}
+                              className="h-4 w-4 accent-emerald-400"
+                            />
+                          </div>
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="font-semibold">{exp.title}</div>
+                              <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-zinc-200 ring-1 ring-white/10">
+                                {exp.category}
+                              </span>
+                            </div>
+                            <div className="mt-1 text-xs text-zinc-400">Plan: {formatMoney(Number(exp.plannedAmount || 0))}</div>
+                          </div>
+                          <div className="text-right text-sm font-semibold text-zinc-100">-{formatMoney(Number(exp.plannedAmount || 0))}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+                <div className="text-sm font-medium">Generar</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <input
+                    type="date"
+                    className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    value={planBaseDate}
+                    onChange={(e) => setPlanBaseDate(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-400"
+                    onClick={generateForToday}
+                  >
+                    Hoy
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-400"
+                    onClick={generateForWeek}
+                  >
+                    Semana
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-400"
+                    onClick={generateForMonth}
+                  >
+                    Mes
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+                <div className="text-sm font-medium">{editingPlanRuleId ? "Editar regla" : "Nueva regla"}</div>
+                <form className="mt-3 grid gap-2" onSubmit={onSubmitPlanRule}>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
+                      value={planCadence}
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                        const next = e.target.value as ("daily" | "weekly" | "monthly");
+                        setPlanCadence(next);
+                        setPlanDays([]);
+                      }}
+                    >
+                      <option value="daily">Diario</option>
+                      <option value="weekly">Semanal</option>
+                      <option value="monthly">Mensual</option>
+                    </select>
+                    <input
+                      inputMode="decimal"
+                      className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
+                      placeholder="Monto"
+                      value={planAmount}
+                      onChange={(e) => setPlanAmount(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
+                      value={planCategory}
+                      onChange={(e) => setPlanCategory(e.target.value)}
+                    >
+                      <option value="Comida">Comida</option>
+                      <option value="Transporte">Transporte</option>
+                      <option value="Casa">Casa</option>
+                      <option value="Salud">Salud</option>
+                      <option value="Otros">Otros</option>
+                    </select>
+                    <input
+                      className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:ring-2 focus:ring-indigo-500/50"
+                      placeholder="Título"
+                      value={planTitle}
+                      onChange={(e) => setPlanTitle(e.target.value)}
+                    />
+                  </div>
+
+                  {planCadence === "weekly" ? (
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className={`rounded-xl px-3 py-2 text-sm font-semibold shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 ${
+                          planDays.join(",") === "1,2,3,4,5" ? "bg-indigo-500 text-white" : "bg-zinc-950/40 text-zinc-100"
+                        }`}
+                        onClick={() => setWeeklyPreset("lv")}
+                      >
+                        L-V
+                      </button>
+                      <button
+                        type="button"
+                        className={`rounded-xl px-3 py-2 text-sm font-semibold shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 ${
+                          planDays.join(",") === "0,6" ? "bg-indigo-500 text-white" : "bg-zinc-950/40 text-zinc-100"
+                        }`}
+                        onClick={() => setWeeklyPreset("weekend")}
+                      >
+                        S-D
+                      </button>
+                      <button
+                        type="button"
+                        className={`rounded-xl px-3 py-2 text-sm font-semibold shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 ${
+                          planDays.length === 7 ? "bg-indigo-500 text-white" : "bg-zinc-950/40 text-zinc-100"
+                        }`}
+                        onClick={() => setWeeklyPreset("all")}
+                      >
+                        Todos
+                      </button>
+                      <div className="text-xs text-zinc-400 self-center">(Para semanal, elige un preset.)</div>
+                    </div>
+                  ) : null}
+
+                  {planCadence === "monthly" ? (
+                    <div className="mt-1 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        className={`rounded-xl px-3 py-2 text-sm font-semibold shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 ${
+                          planDays.join(",") === "1" ? "bg-indigo-500 text-white" : "bg-zinc-950/40 text-zinc-100"
+                        }`}
+                        onClick={() => setMonthlyPreset("first")}
+                      >
+                        Día 1
+                      </button>
+                      <button
+                        type="button"
+                        className={`rounded-xl px-3 py-2 text-sm font-semibold shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 ${
+                          planDays.join(",") === "15" ? "bg-indigo-500 text-white" : "bg-zinc-950/40 text-zinc-100"
+                        }`}
+                        onClick={() => setMonthlyPreset("fifteenth")}
+                      >
+                        Día 15
+                      </button>
+                      <button
+                        type="button"
+                        className={`rounded-xl px-3 py-2 text-sm font-semibold shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 ${
+                          planDays.join(",") === "1,15" ? "bg-indigo-500 text-white" : "bg-zinc-950/40 text-zinc-100"
+                        }`}
+                        onClick={() => setMonthlyPreset("firstAndFifteenth")}
+                      >
+                        1 y 15
+                      </button>
+                      <button
+                        type="button"
+                        className={`rounded-xl px-3 py-2 text-sm font-semibold shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 ${
+                          planDays.length === 31 ? "bg-indigo-500 text-white" : "bg-zinc-950/40 text-zinc-100"
+                        }`}
+                        onClick={() => setMonthlyPreset("allDays")}
+                      >
+                        Todos los días
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
+                      onClick={() => {
+                        resetPlanForm();
+                        setPlanOpen(false);
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      className="rounded-xl bg-indigo-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-400"
+                    >
+                      {editingPlanRuleId ? "Guardar cambios" : "Guardar regla"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+                <div className="text-sm font-medium">Reglas</div>
+                <div className="mt-3 grid gap-2">
+                  {state.planRules.length === 0 ? (
+                    <div className="rounded-xl border border-white/10 bg-zinc-950/20 p-3 text-sm text-zinc-300">Aún no hay reglas.</div>
+                  ) : (
+                    state.planRules.map((r) => (
+                      <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <div className="font-semibold">{r.title}</div>
+                            <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-zinc-200 ring-1 ring-white/10">{r.category}</span>
+                            <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-zinc-200 ring-1 ring-white/10">{r.cadence}</span>
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-400">Plan: {formatMoney(Number(r.amount || 0))}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-indigo-500/15 hover:ring-indigo-400/20"
+                            onClick={() => onEditPlanRule(r.id)}
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-rose-500/15 hover:ring-rose-400/20"
+                            onClick={() => onDeletePlanRule(r.id)}
+                          >
+                            Borrar
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {rangeOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={() => setRangeOpen(false)}>
+          <div
+            className="w-full max-w-4xl rounded-2xl border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">Resumen por fechas</div>
+                <div className="text-sm text-zinc-300">Elige un rango para ver plan vs real.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
+                onClick={() => setRangeOpen(false)}
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <datalist id="expense-dates-range">
+              {existingDates.map((d) => (
+                <option key={d} value={d} />
+              ))}
+            </datalist>
+
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <div className="grid w-full gap-2 md:w-auto md:grid-cols-2">
+                <input
+                  type="date"
+                  list="expense-dates-range"
+                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  value={rangeStart}
+                  onChange={(e) => setRangeStart(e.target.value)}
+                />
+                <input
+                  type="date"
+                  list="expense-dates-range"
+                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  value={rangeEnd}
+                  onChange={(e) => setRangeEnd(e.target.value)}
+                />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
+                  onClick={setRangePresetWeek}
+                >
+                  Semana
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
+                  onClick={setRangePresetMonth}
+                >
+                  Mes
+                </button>
+              </div>
+            </div>
+
+            <div className="app-scroll mt-4 max-h-[70vh] overflow-auto pr-1">
+              {rangeSummary ? (
+                <div className="grid gap-3">
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                    <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+                      <div className="text-xs text-zinc-400">Rango</div>
+                      <div className="mt-1 text-sm font-semibold">
+                        {rangeSummary.startIso} → {rangeSummary.endIso}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-400">{rangeSummary.count} gastos</div>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+                      <div className="text-xs text-zinc-400">Plan</div>
+                      <div className="mt-1 text-sm font-semibold">{formatMoney(rangeSummary.planned)}</div>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+                      <div className="text-xs text-zinc-400">Real (hechos)</div>
+                      <div className="mt-1 text-sm font-semibold">{formatMoney(rangeSummary.actual)}</div>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+                      <div className="text-xs text-zinc-400">Ahorro</div>
+                      <div className="mt-1 text-sm font-semibold">{formatMoney(rangeSummary.savings)}</div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+                    <div className="text-sm font-medium">Por categoría</div>
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      {rangeSummary.categories.length === 0 ? (
+                        <div className="text-sm text-zinc-300">Sin datos.</div>
+                      ) : (
+                        rangeSummary.categories.map((c) => (
+                          <div
+                            key={c.category}
+                            className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-zinc-950/20 px-3 py-2"
+                          >
+                            <div className="text-sm font-semibold">{c.category}</div>
+                            <div className="text-xs text-zinc-300">
+                              Real: {formatMoney(c.actual)} · Plan: {formatMoney(c.planned)}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-white/10 bg-zinc-950/20 p-3 text-sm text-zinc-300">Selecciona un rango válido.</div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {incomeOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={() => setIncomeOpen(false)}>
@@ -526,7 +1112,7 @@ export default function Home() {
                 Cerrar
               </button>
             </div>
-            <div className="mt-3 max-h-[70vh] overflow-auto pr-1">
+            <div className="app-scroll mt-3 max-h-[70vh] overflow-auto pr-1">
               {expenses.length === 0 ? (
                 <div className="rounded-xl border border-white/10 bg-zinc-950/30 p-4 text-sm text-zinc-300">No hay gastos para este filtro.</div>
               ) : (
