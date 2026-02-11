@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "exportedAt": "2026-02-11T13:03:42.782Z",
+  "state": {
+    "initialBalance": 292.5,
+    "incomes": [],
+    "expenses": [
+      {
+        "id": "88489830-2f35-4263-b1b5-ae8d6cb945f3",
+        "date": "2026-02-09",
+        "plannedAmount": 10,
+        "actualAmount": 0,
+        "category": "Comida",
+        "title": "Almuerzo",
+        "note": "",
+        "done": false,
+        "sourceBudgetId": "aa4a8ab3-17af-495c-aaa5-3499ace18c10",
+        "createdAt": 1770792551174
+      },
+      {
+        "id": "3196008c-940f-42c1-8042-f759a3cc6e60",
+        "date": "2026-02-11",
+        "plannedAmount": 7.5,
+        "actualAmount": 0,
+        "category": "Comida",
+        "title": "Marcianos",
+        "note": "deuda de 5 marcianos",
+        "done": false,
+        "sourceBudgetId": null,
+        "createdAt": 1770791523927
+      },
+      {
+        "id": "0e1645a1-dc35-4035-bbd8-35da71b81429",
+        "date": "2026-02-10",
+        "plannedAmount": 10,
+        "actualAmount": 10,
+        "category": "Transporte",
+        "title": "Pasaje Tren",
+        "note": "No se",
+        "done": true,
+        "sourceBudgetId": null,
+        "createdAt": 1770778044094
+      },
+      {
+        "id": "d05ccf3a-910b-46a1-a250-f843b8f18b45",
+        "date": "2026-02-10",
+        "plannedAmount": 4.88,
+        "actualAmount": 4.88,
+        "category": "Comida",
+        "title": "Buffet",
+        "note": "Almuerzo",
+        "done": true,
+        "sourceBudgetId": null,
+        "createdAt": 1770777968028
+      },
+      {
+        "id": "14c6147b-b9da-4f01-9a06-ec42acd6ffcc",
+        "date": "2026-02-10",
+        "plannedAmount": 1,
+        "actualAmount": 1,
+        "category": "Comida",
+        "title": "Almuerzo",
+        "note": "Gaseosa Sprite",
+        "done": true,
+        "sourceBudgetId": null,
+        "createdAt": 1770777914994
+      },
+      {
+        "id": "070a9129-9146-4167-9573-dcdc0beb1e07",
+        "date": "2026-02-10",
+        "plannedAmount": 3.5,
+        "actualAmount": 3.5,
+        "category": "Comida",
+        "title": "Gaseosa Fresh +  Caramandungas",
+        "note": "Desayuno",
+        "done": true,
+        "sourceBudgetId": null,
+        "createdAt": 1770777866116
+      },
+      {
+        "id": "cc92336c-9703-4492-8582-b3c11da88ecf",
+        "date": "2026-02-09",
+        "plannedAmount": 2,
+        "actualAmount": 2,
+        "category": "Comida",
+        "title": "Gatorade Naranja",
+        "note": "Almuerzo",
+        "done": true,
+        "sourceBudgetId": null,
+        "createdAt": 1770777733784
+      },
+      {
+        "id": "00a7382d-7edd-4cee-bac0-2b11180e627c",
+        "date": "2026-02-09",
+        "plannedAmount": 4.79,
+        "actualAmount": 4.79,
+        "category": "Comida",
+        "title": "Galleta casino de menta y Powerade de manzana",
+        "note": "Desayuno",
+        "done": true,
+        "sourceBudgetId": null,
+        "createdAt": 1770777541655
+      }
+    ],
+    "budgets": [],
+    "planRules": [
+      {
+        "id": "aa4a8ab3-17af-495c-aaa5-3499ace18c10",
+        "cadence": "daily",
+        "amount": 10,
+        "category": "Comida",
+        "title": "Almuerzo",
+        "days": [],
+        "createdAt": 1770792524054
+      }
+    ],
+    "ui": {
+      "filterDate": "2026-02-11"
+    }
+  }
+}
