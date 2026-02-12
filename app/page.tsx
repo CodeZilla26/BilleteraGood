@@ -34,10 +34,16 @@ export default function Home() {
 
   const [incomeOpen, setIncomeOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [transportOpen, setTransportOpen] = useState(false);
   const [actualOpen, setActualOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const [transportTab, setTransportTab] = useState<"recharge" | "trip">("recharge");
+  const [transportDate, setTransportDate] = useState(() => todayISO());
+  const [transportAmount, setTransportAmount] = useState<string>("");
+  const [transportNote, setTransportNote] = useState<string>("");
+  const [transportError, setTransportError] = useState<string | null>(null);
 
   const [confirmConfig, setConfirmConfig] = useState<{ title: string; text: string; okText: string } | null>(null);
   const confirmResolverRef = useRef<((ok: boolean) => void) | null>(null);
@@ -71,11 +77,6 @@ export default function Home() {
   const [planDays, setPlanDays] = useState<number[]>([]);
   const [planBaseDate, setPlanBaseDate] = useState(() => todayISO());
   const [editingPlanRuleId, setEditingPlanRuleId] = useState<string | null>(null);
-
-  const [rangeOpen, setRangeOpen] = useState(false);
-
-  const [rangeStart, setRangeStart] = useState(() => todayISO());
-  const [rangeEnd, setRangeEnd] = useState(() => todayISO());
 
   useEffect(() => {
     initFirebaseAnalytics();
@@ -138,6 +139,64 @@ export default function Home() {
     } finally {
       setAuthBusy(false);
     }
+  };
+
+  const resetTransportForm = () => {
+    setTransportTab("recharge");
+    setTransportDate(todayISO());
+    setTransportAmount("");
+    setTransportNote("");
+    setTransportError(null);
+  };
+
+  const getTransportTripFareForDate = (dateIso: string) => {
+    const iso = (dateIso || "").trim() || todayISO();
+    const d = new Date(`${iso}T00:00:00`);
+    const day = d.getDay();
+    return day === 0 ? 1.5 : 0.75;
+  };
+
+  const quickAddTransportTrip = (multiplier: number) => {
+    setTransportError(null);
+    const date = (transportDate || "").trim() || todayISO();
+    const note = (transportNote || "").trim();
+    const fare = getTransportTripFareForDate(date);
+    const amount = Number((fare * multiplier).toFixed(2));
+
+    if (!(amount > 0)) return;
+    const bal = Number(state.transport?.balance || 0);
+    if (amount > bal) {
+      setTransportError("Saldo insuficiente en la tarjeta.");
+      return;
+    }
+
+    actions.addTransportTrip({ date, amount, note });
+    setTransportAmount("");
+    setTransportNote("");
+  };
+
+  const onSubmitTransport = (e: React.FormEvent) => {
+    e.preventDefault();
+    setTransportError(null);
+    const amount = parseAmount(transportAmount);
+    const date = (transportDate || "").trim() || todayISO();
+    const note = (transportNote || "").trim();
+
+    if (!(amount > 0)) return;
+    if (transportTab === "trip") {
+      const bal = Number(state.transport?.balance || 0);
+      if (amount > bal) {
+        setTransportError("Saldo insuficiente en la tarjeta.");
+        return;
+      }
+      actions.addTransportTrip({ date, amount, note });
+    } else {
+      actions.addTransportRecharge({ date, amount, note });
+    }
+
+    setTransportOpen(false);
+    setTransportAmount("");
+    setTransportNote("");
   };
 
   const onPickImportFile = () => {
@@ -207,38 +266,6 @@ export default function Home() {
       .slice()
       .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }, [state.expenses, checklistDate]);
-
-  const rangeSummary = useMemo(() => {
-    const start = (rangeStart || "").trim();
-    const end = (rangeEnd || "").trim();
-    if (!start || !end) return null;
-    const a = parseISODate(start);
-    const b = parseISODate(end);
-    const startIso = dateToISO(a <= b ? a : b);
-    const endIso = dateToISO(a <= b ? b : a);
-    const items = state.expenses.filter((x) => x.date >= startIso && x.date <= endIso);
-
-    const planned = items.reduce((acc, x) => acc + Number(x.plannedAmount || 0), 0);
-    const actual = items.filter((x) => x.done).reduce((acc, x) => acc + Number(x.actualAmount || 0), 0);
-    const savings = items
-      .filter((x) => x.done)
-      .reduce((acc, x) => acc + (Number(x.plannedAmount || 0) - Number(x.actualAmount || 0)), 0);
-
-    const byCategory = new Map<string, { planned: number; actual: number }>();
-    for (const it of items) {
-      const key = it.category || "Otros";
-      const prev = byCategory.get(key) || { planned: 0, actual: 0 };
-      prev.planned += Number(it.plannedAmount || 0);
-      if (it.done) prev.actual += Number(it.actualAmount || 0);
-      byCategory.set(key, prev);
-    }
-
-    const categories = Array.from(byCategory.entries())
-      .map(([category, v]) => ({ category, planned: v.planned, actual: v.actual }))
-      .sort((x, y) => y.actual - x.actual);
-
-    return { startIso, endIso, count: items.length, planned, actual, savings, categories };
-  }, [rangeStart, rangeEnd, state.expenses]);
 
   const openConfirm = (cfg: { title: string; text: string; okText?: string }) => {
     return new Promise<boolean>((resolve) => {
@@ -486,22 +513,6 @@ export default function Home() {
   const filterToday = () => actions.setFilterDate(todayISO());
   const filterAll = () => actions.setFilterDate("");
 
-  const setRangePresetWeek = () => {
-    const base = parseISODate((rangeStart || "").trim() || todayISO());
-    const start = startOfWeekMonday(base);
-    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6);
-    setRangeStart(dateToISO(start));
-    setRangeEnd(dateToISO(end));
-  };
-
-  const setRangePresetMonth = () => {
-    const base = parseISODate((rangeStart || "").trim() || todayISO());
-    const start = new Date(base.getFullYear(), base.getMonth(), 1);
-    const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-    setRangeStart(dateToISO(start));
-    setRangeEnd(dateToISO(end));
-  };
-
   return (
     <div className="min-h-dvh bg-zinc-950 text-zinc-100">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(900px_circle_at_20%_10%,rgba(99,102,241,0.14),transparent_55%),radial-gradient(900px_circle_at_80%_20%,rgba(16,185,129,0.10),transparent_55%),radial-gradient(900px_circle_at_50%_100%,rgba(244,63,94,0.06),transparent_60%)]" />
@@ -560,6 +571,140 @@ export default function Home() {
           </section>
         ) : null}
 
+      {transportOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-0 sm:p-4" onMouseDown={() => setTransportOpen(false)}>
+          <div
+            className="h-[100dvh] w-full overflow-auto rounded-none border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur sm:h-auto sm:max-w-lg sm:rounded-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">Transporte</div>
+                <div className="mt-1 text-sm text-zinc-300">Saldo tarjeta: {formatMoney(Number(state.transport?.balance || 0))}</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
+                onClick={() => {
+                  setTransportOpen(false);
+                  resetTransportForm();
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className={`rounded-xl px-3 py-2 text-sm font-semibold shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 ${
+                  transportTab === "recharge" ? "bg-indigo-500 text-white" : "bg-zinc-950/40 text-zinc-100"
+                }`}
+                onClick={() => {
+                  setTransportTab("recharge");
+                  setTransportError(null);
+                }}
+              >
+                Recarga
+              </button>
+              <button
+                type="button"
+                className={`rounded-xl px-3 py-2 text-sm font-semibold shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 ${
+                  transportTab === "trip" ? "bg-emerald-500 text-white" : "bg-zinc-950/40 text-zinc-100"
+                }`}
+                onClick={() => {
+                  setTransportTab("trip");
+                  setTransportError(null);
+                }}
+              >
+                Viaje
+              </button>
+            </div>
+
+            <form className="mt-3 grid gap-2" onSubmit={onSubmitTransport}>
+              <input
+                type="date"
+                className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
+                value={transportDate}
+                onChange={(e) => setTransportDate(e.target.value)}
+              />
+
+              {transportTab === "trip" ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-emerald-100 shadow-sm ring-1 ring-emerald-400/20 hover:bg-emerald-500/20"
+                    onClick={() => quickAddTransportTrip(1)}
+                  >
+                    1 viaje ({formatMoney(getTransportTripFareForDate(transportDate))})
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl bg-emerald-500/15 px-3 py-2 text-sm font-semibold text-emerald-100 shadow-sm ring-1 ring-emerald-400/20 hover:bg-emerald-500/20"
+                    onClick={() => quickAddTransportTrip(2)}
+                  >
+                    2 viajes ({formatMoney(getTransportTripFareForDate(transportDate) * 2)})
+                  </button>
+                </div>
+              ) : null}
+
+              <input
+                inputMode="decimal"
+                className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
+                placeholder={transportTab === "recharge" ? "Monto recarga" : "Monto viaje"}
+                value={transportAmount}
+                onChange={(e) => setTransportAmount(e.target.value)}
+              />
+              <input
+                className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:ring-2 focus:ring-indigo-500/50"
+                placeholder="Nota (opcional)"
+                value={transportNote}
+                onChange={(e) => setTransportNote(e.target.value)}
+              />
+
+              {transportError ? (
+                <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-sm text-rose-200">{transportError}</div>
+              ) : null}
+
+              <button
+                type="submit"
+                className={`rounded-xl px-3 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 ${
+                  transportTab === "recharge" ? "bg-indigo-500" : "bg-emerald-500"
+                }`}
+              >
+                {transportTab === "recharge" ? "Registrar recarga" : "Registrar viaje"}
+              </button>
+            </form>
+
+            <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+              <div className="text-sm font-medium">Últimos movimientos</div>
+              <div className="mt-2 app-scroll max-h-[240px] overflow-auto pr-1">
+                {(state.transport?.events || []).length === 0 ? (
+                  <div className="text-sm text-zinc-300">Aún no hay movimientos.</div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {(state.transport?.events || []).slice(0, 20).map((ev) => (
+                      <div key={ev.id} className="rounded-xl border border-white/10 bg-zinc-950/20 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-semibold">
+                            {ev.type === "recharge" ? "Recarga" : "Viaje"} · {ev.date}
+                          </div>
+                          <div className={`text-sm font-semibold ${ev.type === "recharge" ? "text-emerald-300" : "text-rose-200"}`}>
+                            {ev.type === "recharge" ? "+" : "-"}
+                            {formatMoney(Number(ev.amount || 0))}
+                          </div>
+                        </div>
+                        {ev.note ? <div className="mt-1 text-xs text-zinc-400">{ev.note}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
         {!authLoading && user ? (
           <div className="flex items-center justify-between gap-2">
             <div className="text-sm text-zinc-400">Sesión: {user.email || user.uid}</div>
@@ -595,55 +740,44 @@ export default function Home() {
         {!authLoading && !user ? null : (
         <>
         <header className="grid gap-3 md:grid-cols-12">
-          <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur md:col-span-5">
+          <button
+            type="button"
+            className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4 text-left shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur hover:bg-zinc-900/70 md:col-span-5"
+            onClick={() => setIncomeOpen(true)}
+          >
             <div className="text-sm text-zinc-400">Saldo</div>
             <div className="mt-1 text-3xl font-semibold tracking-tight">{formatMoney(totals.balance)}</div>
             <div className="mt-2 text-sm text-zinc-400">Ahorro (gastos hechos): {formatMoney(totals.savingsDone)}</div>
-            <div className="mt-4 hidden flex-wrap gap-2 md:flex">
-              <button
-                type="button"
-                className="rounded-xl bg-indigo-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-400"
-                onClick={() => setIncomeOpen(true)}
-              >
-                + Ingreso / Saldo
-              </button>
-              <button
-                type="button"
-                className="rounded-xl bg-zinc-900/60 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-900"
-                onClick={() => setExpenseOpen(true)}
-              >
-                + Gasto
-              </button>
-              <button
-                type="button"
-                className="rounded-xl bg-zinc-900/60 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-900"
-                onClick={() => setHistoryOpen(true)}
-              >
-                Historial
-              </button>
-              <button
-                type="button"
-                className="rounded-xl bg-zinc-900/60 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-900"
-                onClick={() => setRangeOpen(true)}
-              >
-                Resumen
-              </button>
-            </div>
-          </div>
+          </button>
 
           <div className="grid grid-cols-2 gap-3 md:col-span-7 md:grid-cols-4">
             <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4 shadow-sm">
               <div className="text-sm text-zinc-400">Ingresos</div>
               <div className="mt-1 text-xl font-semibold">{formatMoney(totals.incomesTotal)}</div>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4 shadow-sm">
+            <button
+              type="button"
+              className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4 text-left shadow-sm hover:bg-zinc-900/60"
+              onClick={() => setExpenseOpen(true)}
+            >
               <div className="text-sm text-zinc-400">Gastos hechos</div>
               <div className="mt-1 text-xl font-semibold">{formatMoney(totals.expenseDone)}</div>
-            </div>
+            </button>
             <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4 shadow-sm">
               <div className="text-sm text-zinc-400">Ahorro</div>
               <div className="mt-1 text-xl font-semibold">{formatMoney(totals.savingsDone)}</div>
             </div>
+            <button
+              type="button"
+              className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4 text-left shadow-sm hover:bg-zinc-900/60"
+              onClick={() => {
+                setTransportError(null);
+                setTransportOpen(true);
+              }}
+            >
+              <div className="text-sm text-zinc-400">Tarjeta transporte</div>
+              <div className="mt-1 text-xl font-semibold">{formatMoney(Number(state.transport?.balance || 0))}</div>
+            </button>
           </div>
         </header>
 
@@ -775,42 +909,24 @@ export default function Home() {
       </main>
 
       {!authLoading && user ? (
-        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-zinc-950/80 backdrop-blur md:hidden">
-          <div className="mx-auto grid w-full max-w-5xl grid-cols-5 gap-2 p-2">
+        <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-zinc-950/60 backdrop-blur md:hidden">
+          <div className="mx-auto grid max-w-3xl grid-cols-2 gap-2 px-3 py-2">
             <button
               type="button"
-              className="rounded-xl bg-indigo-500 px-2 py-3 text-xs font-semibold text-white shadow-sm hover:bg-indigo-400"
-              onClick={() => setIncomeOpen(true)}
+              className="rounded-xl bg-zinc-900/60 px-2 py-3 text-xs font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-900"
+              onClick={() => {
+                setTransportError(null);
+                setTransportOpen(true);
+              }}
             >
-              Ingreso
+              Transporte
             </button>
             <button
               type="button"
               className="rounded-xl bg-zinc-900/60 px-2 py-3 text-xs font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-900"
               onClick={() => setExpenseOpen(true)}
             >
-              Gasto
-            </button>
-            <button
-              type="button"
-              className="rounded-xl bg-zinc-900/60 px-2 py-3 text-xs font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-900"
-              onClick={() => setPlanOpen(true)}
-            >
-              Plan
-            </button>
-            <button
-              type="button"
-              className="rounded-xl bg-zinc-900/60 px-2 py-3 text-xs font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-900"
-              onClick={() => setHistoryOpen(true)}
-            >
-              Historial
-            </button>
-            <button
-              type="button"
-              className="rounded-xl bg-zinc-900/60 px-2 py-3 text-xs font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-900"
-              onClick={() => setRangeOpen(true)}
-            >
-              Resumen
+              Gastos
             </button>
           </div>
         </nav>
@@ -1106,122 +1222,6 @@ export default function Home() {
         </div>
       ) : null}
 
-      {rangeOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-0 sm:p-4" onMouseDown={() => setRangeOpen(false)}>
-          <div
-            className="h-[100dvh] w-full overflow-auto rounded-none border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur sm:h-auto sm:max-w-4xl sm:rounded-2xl"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-medium">Resumen por fechas</div>
-                <div className="text-sm text-zinc-300">Elige un rango para ver plan vs real.</div>
-              </div>
-              <button
-                type="button"
-                className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
-                onClick={() => setRangeOpen(false)}
-              >
-                Cerrar
-              </button>
-            </div>
-
-            <datalist id="expense-dates-range">
-              {existingDates.map((d) => (
-                <option key={d} value={d} />
-              ))}
-            </datalist>
-
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              <div className="grid w-full gap-2 md:w-auto md:grid-cols-2">
-                <input
-                  type="date"
-                  list="expense-dates-range"
-                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  value={rangeStart}
-                  onChange={(e) => setRangeStart(e.target.value)}
-                />
-                <input
-                  type="date"
-                  list="expense-dates-range"
-                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  value={rangeEnd}
-                  onChange={(e) => setRangeEnd(e.target.value)}
-                />
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
-                  onClick={setRangePresetWeek}
-                >
-                  Semana
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
-                  onClick={setRangePresetMonth}
-                >
-                  Mes
-                </button>
-              </div>
-            </div>
-
-            <div className="app-scroll mt-4 max-h-[70vh] overflow-auto pr-1">
-              {rangeSummary ? (
-                <div className="grid gap-3">
-                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                    <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
-                      <div className="text-xs text-zinc-400">Rango</div>
-                      <div className="mt-1 text-sm font-semibold">
-                        {rangeSummary.startIso} → {rangeSummary.endIso}
-                      </div>
-                      <div className="mt-1 text-xs text-zinc-400">{rangeSummary.count} gastos</div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
-                      <div className="text-xs text-zinc-400">Plan</div>
-                      <div className="mt-1 text-sm font-semibold">{formatMoney(rangeSummary.planned)}</div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
-                      <div className="text-xs text-zinc-400">Real (hechos)</div>
-                      <div className="mt-1 text-sm font-semibold">{formatMoney(rangeSummary.actual)}</div>
-                    </div>
-                    <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
-                      <div className="text-xs text-zinc-400">Ahorro</div>
-                      <div className="mt-1 text-sm font-semibold">{formatMoney(rangeSummary.savings)}</div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
-                    <div className="text-sm font-medium">Por categoría</div>
-                    <div className="mt-2 grid gap-2 md:grid-cols-2">
-                      {rangeSummary.categories.length === 0 ? (
-                        <div className="text-sm text-zinc-300">Sin datos.</div>
-                      ) : (
-                        rangeSummary.categories.map((c) => (
-                          <div
-                            key={c.category}
-                            className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-zinc-950/20 px-3 py-2"
-                          >
-                            <div className="text-sm font-semibold">{c.category}</div>
-                            <div className="text-xs text-zinc-300">
-                              Real: {formatMoney(c.actual)} · Plan: {formatMoney(c.planned)}
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-white/10 bg-zinc-950/20 p-3 text-sm text-zinc-300">Selecciona un rango válido.</div>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       {incomeOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-0 sm:p-4" onMouseDown={() => setIncomeOpen(false)}>
           <div
@@ -1333,54 +1333,6 @@ export default function Home() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      ) : null}
-
-      {historyOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-0 sm:p-4" onMouseDown={() => setHistoryOpen(false)}>
-          <div
-            className="h-[100dvh] w-full overflow-auto rounded-none border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur sm:h-auto sm:max-w-4xl sm:rounded-2xl"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-medium">Historial</div>
-                <div className="text-sm text-zinc-300">Lista de gastos con el filtro actual.</div>
-              </div>
-              <button
-                type="button"
-                className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
-                onClick={() => setHistoryOpen(false)}
-              >
-                Cerrar
-              </button>
-            </div>
-            <div className="app-scroll mt-3 max-h-[70vh] overflow-auto pr-1">
-              {expenses.length === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-zinc-950/30 p-4 text-sm text-zinc-300">No hay gastos para este filtro.</div>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {expenses.map((exp) => (
-                    <div key={exp.id} className="rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="font-semibold">{exp.category}</div>
-                          <span className="rounded-full bg-white/5 px-2 py-0.5 text-xs text-zinc-200 ring-1 ring-white/10">
-                            {exp.category}
-                          </span>
-                          <span className="text-xs text-zinc-400">{exp.date}</span>
-                        </div>
-                        <div className="text-sm font-semibold">-{formatMoney(Number(exp.plannedAmount || 0))}</div>
-                      </div>
-                      <div className="mt-1 text-xs text-zinc-400">
-                        Estado: {exp.done ? "Hecho" : "Pendiente"} · Real: {formatMoney(Number(exp.actualAmount || 0))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
           </div>
         </div>
       ) : null}

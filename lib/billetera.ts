@@ -45,12 +45,29 @@ export type PlanRule = {
   createdAt: number;
 };
 
+export type TransportEventType = "recharge" | "trip";
+
+export type TransportEvent = {
+  id: string;
+  type: TransportEventType;
+  date: string;
+  amount: number;
+  note: string;
+  createdAt: number;
+};
+
+export type TransportState = {
+  balance: number;
+  events: TransportEvent[];
+};
+
 export type BilleteraState = {
   initialBalance: number;
   incomes: Income[];
   expenses: Expense[];
   budgets: BudgetRule[];
   planRules: PlanRule[];
+  transport: TransportState;
   ui: {
     filterDate: string;
   };
@@ -125,12 +142,21 @@ export function defaultState(): BilleteraState {
     expenses: [],
     budgets: [],
     planRules: [],
+    transport: {
+      balance: 0,
+      events: [],
+    },
     ui: { filterDate: "" },
   };
 }
 
 export function normalizeState(input: BilleteraState): { state: BilleteraState; changed: boolean } {
   let changed = false;
+
+  const transportRaw = (input as unknown as { transport?: unknown }).transport;
+  const transportObj = transportRaw && typeof transportRaw === "object" ? (transportRaw as Record<string, unknown>) : null;
+  const transportEventsRaw = transportObj && Array.isArray(transportObj.events) ? (transportObj.events as unknown[]) : [];
+  const transportBalanceRaw = transportObj ? Number(transportObj.balance || 0) : 0;
 
   const next: BilleteraState = {
     ...defaultState(),
@@ -142,6 +168,10 @@ export function normalizeState(input: BilleteraState): { state: BilleteraState; 
     planRules: Array.isArray((input as unknown as { planRules?: unknown }).planRules)
       ? ((input as unknown as { planRules: PlanRule[] }).planRules as PlanRule[])
       : [],
+    transport: {
+      balance: transportBalanceRaw,
+      events: transportEventsRaw as TransportEvent[],
+    },
     ui: {
       filterDate: input.ui && typeof input.ui.filterDate === "string" ? input.ui.filterDate : "",
     },
@@ -173,8 +203,71 @@ export function normalizeState(input: BilleteraState): { state: BilleteraState; 
   if (!Array.isArray((input as unknown as { planRules?: unknown }).planRules)) changed = true;
   if (!Array.isArray(input.incomes)) changed = true;
   if (!Array.isArray(input.expenses)) changed = true;
+  if (!(transportRaw && typeof transportRaw === "object")) changed = true;
 
   return { state: next, changed };
+}
+
+export function addTransportRecharge(
+  state: BilleteraState,
+  input: { date: string; amount: number; note?: string }
+): BilleteraState {
+  const amount = Number(input.amount || 0);
+  const date = input.date;
+
+  const nextState = addExpense(state, {
+    date,
+    plannedAmount: amount,
+    actualAmount: amount,
+    done: true,
+    category: "Transporte",
+    title: "Transporte",
+    note: input.note ? String(input.note).trim() : "",
+    sourceBudgetId: null,
+  });
+
+  const ev: TransportEvent = {
+    id: uid(),
+    type: "recharge",
+    date,
+    amount,
+    note: input.note ? String(input.note).trim() : "",
+    createdAt: Date.now(),
+  };
+
+  return {
+    ...nextState,
+    transport: {
+      balance: Number(nextState.transport.balance || 0) + amount,
+      events: [ev, ...(Array.isArray(nextState.transport.events) ? nextState.transport.events : [])],
+    },
+  };
+}
+
+export function addTransportTrip(
+  state: BilleteraState,
+  input: { date: string; amount: number; note?: string }
+): BilleteraState {
+  const amount = Number(input.amount || 0);
+  const date = input.date;
+  const prevBal = Number(state.transport?.balance || 0);
+
+  const ev: TransportEvent = {
+    id: uid(),
+    type: "trip",
+    date,
+    amount,
+    note: input.note ? String(input.note).trim() : "",
+    createdAt: Date.now(),
+  };
+
+  return {
+    ...state,
+    transport: {
+      balance: prevBal - amount,
+      events: [ev, ...(Array.isArray(state.transport?.events) ? state.transport.events : [])],
+    },
+  };
 }
 
 export function loadStateFromStorage(storageKey = STORAGE_KEY): BilleteraState {

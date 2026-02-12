@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  addTransportRecharge,
+  addTransportTrip,
   BilleteraState,
   Expense,
   PlanCadence,
@@ -32,6 +34,9 @@ export type BilleteraActions = {
   clearAll: () => void;
   setInitialBalance: (amount: number) => void;
   setFilterDate: (iso: string) => void;
+
+  addTransportRecharge: (input: { date: string; amount: number; note?: string }) => void;
+  addTransportTrip: (input: { date: string; amount: number; note?: string }) => void;
 
   addIncome: (input: { date: string; amount: number; note?: string }) => void;
   addExpense: (input: {
@@ -102,6 +107,13 @@ export function useBilleteraState(storageKey = STORAGE_KEY): {
             filterDate: String(iso || ""),
           },
         }));
+      },
+
+      addTransportRecharge(input: { date: string; amount: number; note?: string }) {
+        setState((prev) => addTransportRecharge(prev, input));
+      },
+      addTransportTrip(input: { date: string; amount: number; note?: string }) {
+        setState((prev) => addTransportTrip(prev, input));
       },
 
       addIncome(input: { date: string; amount: number; note?: string }) {
