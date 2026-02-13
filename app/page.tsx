@@ -5,12 +5,8 @@ import { get, ref, serverTimestamp, set } from "firebase/database";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type BilleteraState,
-  dateToISO,
   formatMoney,
-  listExpenseDates,
   parseAmount,
-  parseISODate,
-  startOfWeekMonday,
   todayISO,
 } from "@/lib/billetera";
 import { firebaseAuth, firebaseDb, initFirebaseAnalytics } from "@/lib/firebaseClient";
@@ -254,10 +250,6 @@ export default function Home() {
         return (b.createdAt || 0) - (a.createdAt || 0);
       });
   }, [state.expenses, state.ui.filterDate]);
-
-  const existingDates = useMemo(() => {
-    return listExpenseDates(state);
-  }, [state]);
 
   const checklistDate = (state.ui.filterDate || "").trim() || todayISO();
   const dailyChecklist = useMemo(() => {
@@ -516,7 +508,7 @@ export default function Home() {
   return (
     <div className="min-h-dvh bg-zinc-950 text-zinc-100">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(900px_circle_at_20%_10%,rgba(99,102,241,0.14),transparent_55%),radial-gradient(900px_circle_at_80%_20%,rgba(16,185,129,0.10),transparent_55%),radial-gradient(900px_circle_at_50%_100%,rgba(244,63,94,0.06),transparent_60%)]" />
-      <main className="relative mx-auto flex w-full max-w-5xl flex-col gap-4 p-3 pb-24 sm:p-4 sm:pb-4">
+      <main className="relative mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 pb-4">
         {!authLoading && !user ? (
           <section className="grid min-h-[70dvh] place-items-center">
             <div className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900/60 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur">
@@ -572,9 +564,9 @@ export default function Home() {
         ) : null}
 
       {transportOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-0 sm:p-4" onMouseDown={() => setTransportOpen(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={() => setTransportOpen(false)}>
           <div
-            className="h-[100dvh] w-full overflow-auto rounded-none border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur sm:h-auto sm:max-w-lg sm:rounded-2xl"
+            className="w-full max-w-lg overflow-auto rounded-2xl border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
@@ -739,10 +731,10 @@ export default function Home() {
 
         {!authLoading && !user ? null : (
         <>
-        <header className="grid gap-3 md:grid-cols-12">
+        <header className="grid gap-3">
           <button
             type="button"
-            className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4 text-left shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur hover:bg-zinc-900/70 md:col-span-5"
+            className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4 text-left shadow-[0_0_0_1px_rgba(255,255,255,0.06),0_20px_60px_rgba(0,0,0,0.35)] backdrop-blur hover:bg-zinc-900/70"
             onClick={() => setIncomeOpen(true)}
           >
             <div className="text-sm text-zinc-400">Saldo</div>
@@ -750,7 +742,7 @@ export default function Home() {
             <div className="mt-2 text-sm text-zinc-400">Ahorro (gastos hechos): {formatMoney(totals.savingsDone)}</div>
           </button>
 
-          <div className="grid grid-cols-2 gap-3 md:col-span-7 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4 shadow-sm">
               <div className="text-sm text-zinc-400">Ingresos</div>
               <div className="mt-1 text-xl font-semibold">{formatMoney(totals.incomesTotal)}</div>
@@ -908,34 +900,10 @@ export default function Home() {
         )}
       </main>
 
-      {!authLoading && user ? (
-        <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-white/10 bg-zinc-950/60 backdrop-blur md:hidden">
-          <div className="mx-auto grid max-w-3xl grid-cols-2 gap-2 px-3 py-2">
-            <button
-              type="button"
-              className="rounded-xl bg-zinc-900/60 px-2 py-3 text-xs font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-900"
-              onClick={() => {
-                setTransportError(null);
-                setTransportOpen(true);
-              }}
-            >
-              Transporte
-            </button>
-            <button
-              type="button"
-              className="rounded-xl bg-zinc-900/60 px-2 py-3 text-xs font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-900"
-              onClick={() => setExpenseOpen(true)}
-            >
-              Gastos
-            </button>
-          </div>
-        </nav>
-      ) : null}
-
       {planOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-0 sm:p-4" onMouseDown={() => setPlanOpen(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={() => setPlanOpen(false)}>
           <div
-            className="h-[100dvh] w-full overflow-auto rounded-none border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur sm:h-auto sm:max-w-2xl sm:rounded-2xl"
+            className="w-full max-w-2xl overflow-auto rounded-2xl border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
@@ -1223,9 +1191,9 @@ export default function Home() {
       ) : null}
 
       {incomeOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-0 sm:p-4" onMouseDown={() => setIncomeOpen(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={() => setIncomeOpen(false)}>
           <div
-            className="h-[100dvh] w-full overflow-auto rounded-none border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur sm:h-auto sm:max-w-lg sm:rounded-2xl"
+            className="w-full max-w-lg overflow-auto rounded-2xl border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="text-sm font-medium">Ingreso</div>
@@ -1280,9 +1248,9 @@ export default function Home() {
       ) : null}
 
       {expenseOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-0 sm:p-4" onMouseDown={() => setExpenseOpen(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={() => setExpenseOpen(false)}>
           <div
-            className="h-[100dvh] w-full overflow-auto rounded-none border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur sm:h-auto sm:max-w-lg sm:rounded-2xl"
+            className="w-full max-w-lg overflow-auto rounded-2xl border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="text-sm font-medium">Gasto</div>
@@ -1338,9 +1306,9 @@ export default function Home() {
       ) : null}
 
       {actualOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-0 sm:p-4" onMouseDown={() => setActualOpen(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={() => setActualOpen(false)}>
           <div
-            className="h-[100dvh] w-full overflow-auto rounded-none border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur sm:h-auto sm:max-w-lg sm:rounded-2xl"
+            className="w-full max-w-lg overflow-auto rounded-2xl border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="text-sm font-medium">Confirmar gasto</div>
@@ -1396,9 +1364,9 @@ export default function Home() {
       ) : null}
 
       {editOpen ? (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-0 sm:p-4" onMouseDown={() => setEditOpen(false)}>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={() => setEditOpen(false)}>
           <div
-            className="h-[100dvh] w-full overflow-auto rounded-none border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur sm:h-auto sm:max-w-2xl sm:rounded-2xl"
+            className="w-full max-w-2xl overflow-auto rounded-2xl border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="text-sm font-medium">Editar gasto</div>
