@@ -20,7 +20,6 @@ export default function Home() {
   const [cloudReady, setCloudReady] = useState(false);
   const cloudWriteTimerRef = useRef<number | null>(null);
   const lastCloudWriteRef = useRef<string>("");
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
@@ -59,11 +58,7 @@ export default function Home() {
   const [expenseCategory, setExpenseCategory] = useState("Comida");
   const [expenseNote, setExpenseNote] = useState("");
 
-  const [editDate, setEditDate] = useState("");
-  const [editPlanned, setEditPlanned] = useState("");
-  const [editActual, setEditActual] = useState("");
-  const [editStatus, setEditStatus] = useState<"pending" | "done">("pending");
-  const [editCategory, setEditCategory] = useState("Comida");
+  const [editAmount, setEditAmount] = useState("");
   const [editNote, setEditNote] = useState("");
 
   const [planOpen, setPlanOpen] = useState(false);
@@ -193,34 +188,6 @@ export default function Home() {
     setTransportOpen(false);
     setTransportAmount("");
     setTransportNote("");
-  };
-
-  const onPickImportFile = () => {
-    fileInputRef.current?.click();
-  };
-
-  const onImportBackupFile: React.ChangeEventHandler<HTMLInputElement> = async (e) => {
-    setAuthError(null);
-    try {
-      if (!user) {
-        setAuthError("Debes iniciar sesión para importar.");
-        return;
-      }
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const text = await file.text();
-      const parsed = JSON.parse(text) as { version?: unknown; state?: unknown };
-      if (!parsed || typeof parsed !== "object") throw new Error("JSON inválido");
-      if (!parsed.state || typeof parsed.state !== "object") throw new Error("El JSON no contiene 'state'");
-
-      actions.setAll(parsed.state as BilleteraState);
-      const p = ref(firebaseDb, `users/${user.uid}/billeteraState`);
-      await set(p, parsed.state);
-    } catch (err) {
-      setAuthError(err instanceof Error ? err.message : "Error importando JSON");
-    } finally {
-      if (e.target) e.target.value = "";
-    }
   };
 
   const onLogout = async () => {
@@ -441,11 +408,8 @@ export default function Home() {
     const exp = state.expenses.find((x) => x.id === expenseId);
     if (!exp) return;
     setEditingId(expenseId);
-    setEditDate(exp.date);
-    setEditPlanned(String(Number(exp.plannedAmount || 0)));
-    setEditActual(exp.done ? String(Number(exp.actualAmount || 0)) : "");
-    setEditStatus(exp.done ? "done" : "pending");
-    setEditCategory(exp.category);
+    const amount = exp.done ? Number(exp.actualAmount || 0) : Number(exp.plannedAmount || 0);
+    setEditAmount(String(amount));
     setEditNote(exp.note || "");
     setEditOpen(true);
   };
@@ -454,25 +418,16 @@ export default function Home() {
     e.preventDefault();
     if (!editingId) return;
 
-    const date = (editDate || "").trim();
-    const plannedAmount = parseAmount(editPlanned);
-    const actualAmount = editStatus === "done" ? parseAmount(editActual) : 0;
-    const category = (editCategory || "").trim();
-    const title = category || "Otros";
+    const exp = state.expenses.find((x) => x.id === editingId);
+    if (!exp) return;
+    const amount = parseAmount(editAmount);
     const note = (editNote || "").trim();
-
-    if (!date) return;
-    if (!(plannedAmount > 0)) return;
-    if (!category) return;
+    if (!(amount > 0)) return;
 
     actions.updateExpense(editingId, {
-      date,
-      plannedAmount,
-      actualAmount: editStatus === "done" ? (actualAmount > 0 ? actualAmount : plannedAmount) : 0,
-      category,
-      title,
+      plannedAmount: exp.done ? exp.plannedAmount : amount,
+      actualAmount: exp.done ? amount : exp.actualAmount,
       note,
-      done: editStatus === "done",
     });
 
     setEditOpen(false);
@@ -489,17 +444,6 @@ export default function Home() {
     });
     if (!ok) return;
     actions.deleteExpense(expenseId);
-  };
-
-  const onClearAll = async () => {
-    const ok = await openConfirm({
-      title: "Borrar todo",
-      text: "Esto elimina saldo inicial, ingresos y gastos guardados en este navegador.",
-      okText: "Borrar todo",
-    });
-    if (!ok) return;
-    actions.clearAll();
-    actions.setFilterDate("");
   };
 
   const filterToday = () => actions.setFilterDate(todayISO());
@@ -713,17 +657,7 @@ export default function Home() {
 
         {!authLoading && user ? (
           <div className="flex flex-wrap items-center gap-2">
-            <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={onImportBackupFile} />
-            <button
-              type="button"
-              className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
-              onClick={onPickImportFile}
-            >
-              Importar JSON
-            </button>
-            <div className="text-xs text-zinc-400">
-              {cloudReady ? "Sincronización Firebase: activa" : "Sincronización Firebase: cargando…"}
-            </div>
+            <div className="text-xs text-zinc-400">{cloudReady ? "Sincronización Firebase: activa" : "Sincronización Firebase: cargando…"}</div>
           </div>
         ) : null}
 
@@ -884,13 +818,6 @@ export default function Home() {
                   onClick={() => setPlanOpen(true)}
                 >
                   Planificación
-                </button>
-                <button
-                  type="button"
-                  className="rounded-xl bg-rose-500 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-400"
-                  onClick={onClearAll}
-                >
-                  Borrar todo
                 </button>
               </div>
             </div>
@@ -1371,54 +1298,13 @@ export default function Home() {
           >
             <div className="text-sm font-medium">Editar gasto</div>
             <form className="mt-3 grid gap-2" onSubmit={onSubmitEdit}>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="date"
-                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  value={editDate}
-                  onChange={(e) => setEditDate(e.target.value)}
-                />
-                <select
-                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  value={editStatus}
-                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                    setEditStatus(e.target.value as ("pending" | "done"))
-                  }
-                >
-                  <option value="pending">Pendiente</option>
-                  <option value="done">Hecho</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  inputMode="decimal"
-                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  placeholder="Monto plan"
-                  value={editPlanned}
-                  onChange={(e) => setEditPlanned(e.target.value)}
-                />
-                <input
-                  inputMode="decimal"
-                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  placeholder="Monto real"
-                  value={editActual}
-                  onChange={(e) => setEditActual(e.target.value)}
-                  disabled={editStatus !== "done"}
-                />
-              </div>
-              <div className="grid grid-cols-1 gap-2">
-                <select
-                  className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                  value={editCategory}
-                  onChange={(e) => setEditCategory(e.target.value)}
-                >
-                  <option value="Comida">Comida</option>
-                  <option value="Transporte">Transporte</option>
-                  <option value="Casa">Casa</option>
-                  <option value="Salud">Salud</option>
-                  <option value="Otros">Otros</option>
-                </select>
-              </div>
+              <input
+                inputMode="decimal"
+                className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/50"
+                placeholder="Monto"
+                value={editAmount}
+                onChange={(e) => setEditAmount(e.target.value)}
+              />
               <input
                 className="rounded-xl border border-white/10 bg-zinc-950/50 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:ring-2 focus:ring-indigo-500/50"
                 placeholder="Nota"
