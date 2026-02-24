@@ -68,17 +68,16 @@ export function useBilleteraState(storageKey = STORAGE_KEY): {
   totals: Totals;
   actions: BilleteraActions;
 } {
-  const [state, setState] = useState<BilleteraState>(() => defaultState());
-  const didHydrateFromStorageRef = useRef(false);
+  const [state, setState] = useState<BilleteraState>(() => {
+    return loadStateFromStorage(storageKey);
+  });
+  const didMountRef = useRef(false);
 
   useEffect(() => {
-    const loaded = loadStateFromStorage(storageKey);
-    setState(loaded);
-    didHydrateFromStorageRef.current = true;
-  }, [storageKey]);
-
-  useEffect(() => {
-    if (!didHydrateFromStorageRef.current) return;
+    if (!didMountRef.current) {
+      didMountRef.current = true;
+      return;
+    }
     saveStateToStorage(state, storageKey);
   }, [state, storageKey]);
 

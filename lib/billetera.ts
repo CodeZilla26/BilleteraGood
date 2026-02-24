@@ -158,6 +158,29 @@ export function normalizeState(input: BilleteraState): { state: BilleteraState; 
   const transportEventsRaw = transportObj && Array.isArray(transportObj.events) ? (transportObj.events as unknown[]) : [];
   const transportBalanceRaw = transportObj ? Number(transportObj.balance || 0) : 0;
 
+  const transportEvents: TransportEvent[] = transportEventsRaw
+    .filter((x) => {
+      if (!x || typeof x !== "object") return false;
+      const rec = x as Record<string, unknown>;
+      return (
+        typeof rec.id === "string" &&
+        (rec.type === "recharge" || rec.type === "trip") &&
+        typeof rec.date === "string" &&
+        Number.isFinite(Number(rec.amount))
+      );
+    })
+    .map((x) => {
+      const rec = x as Record<string, unknown>;
+      return {
+        id: String(rec.id),
+        type: rec.type as TransportEventType,
+        date: String(rec.date),
+        amount: Number(rec.amount || 0),
+        note: typeof rec.note === "string" ? rec.note : "",
+        createdAt: Number(rec.createdAt || 0) || 0,
+      };
+    });
+
   const next: BilleteraState = {
     ...defaultState(),
     ...input,
@@ -170,7 +193,7 @@ export function normalizeState(input: BilleteraState): { state: BilleteraState; 
       : [],
     transport: {
       balance: transportBalanceRaw,
-      events: transportEventsRaw as TransportEvent[],
+      events: transportEvents,
     },
     ui: {
       filterDate: input.ui && typeof input.ui.filterDate === "string" ? input.ui.filterDate : "",
@@ -204,6 +227,7 @@ export function normalizeState(input: BilleteraState): { state: BilleteraState; 
   if (!Array.isArray(input.incomes)) changed = true;
   if (!Array.isArray(input.expenses)) changed = true;
   if (!(transportRaw && typeof transportRaw === "object")) changed = true;
+  if (transportEvents.length !== transportEventsRaw.length) changed = true;
 
   return { state: next, changed };
 }

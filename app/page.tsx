@@ -17,6 +17,8 @@ export default function Home() {
   const { state, totals, actions } = useBilleteraState();
   const { user, loading: authLoading } = useFirebaseAuth();
 
+  const [mounted, setMounted] = useState(false);
+
   const [cloudReady, setCloudReady] = useState(false);
   const cloudWriteTimerRef = useRef<number | null>(null);
   const lastCloudWriteRef = useRef<string>("");
@@ -71,6 +73,7 @@ export default function Home() {
 
   useEffect(() => {
     initFirebaseAnalytics();
+    setMounted(true);
   }, []);
 
   useEffect(() => {
@@ -140,12 +143,32 @@ export default function Home() {
     setTransportError(null);
   };
 
+  const [transportCalcDays, setTransportCalcDays] = useState<boolean[]>(() => Array.from({ length: 7 }, () => false));
+  const [transportCalcIda, setTransportCalcIda] = useState(true);
+  const [transportCalcVuelta, setTransportCalcVuelta] = useState(true);
+  const [transportCalcExtras, setTransportCalcExtras] = useState<number[]>(() => Array.from({ length: 7 }, () => 0));
+  const [transportCalcOpen, setTransportCalcOpen] = useState(false);
+
   const getTransportTripFareForDate = (dateIso: string) => {
     const iso = (dateIso || "").trim() || todayISO();
     const d = new Date(`${iso}T00:00:00`);
     const day = d.getDay();
     return day === 0 ? 1.5 : 0.75;
   };
+
+  const getTransportTripFareForDow = (dow: number) => {
+    return dow === 0 ? 1.5 : 0.75;
+  };
+
+  const transportCalcTotal = useMemo(() => {
+    const baseTrips = (transportCalcIda ? 1 : 0) + (transportCalcVuelta ? 1 : 0);
+    return transportCalcDays.reduce((acc, active, dow) => {
+      if (!active) return acc;
+      const extras = Math.max(0, Number(transportCalcExtras[dow] || 0));
+      const trips = baseTrips + extras;
+      return acc + trips * getTransportTripFareForDow(dow);
+    }, 0);
+  }, [transportCalcDays, transportCalcExtras, transportCalcIda, transportCalcVuelta]);
 
   const quickAddTransportTrip = (multiplier: number) => {
     setTransportError(null);
@@ -155,12 +178,6 @@ export default function Home() {
     const amount = Number((fare * multiplier).toFixed(2));
 
     if (!(amount > 0)) return;
-    const bal = Number(state.transport?.balance || 0);
-    if (amount > bal) {
-      setTransportError("Saldo insuficiente en la tarjeta.");
-      return;
-    }
-
     actions.addTransportTrip({ date, amount, note });
     setTransportAmount("");
     setTransportNote("");
@@ -175,11 +192,6 @@ export default function Home() {
 
     if (!(amount > 0)) return;
     if (transportTab === "trip") {
-      const bal = Number(state.transport?.balance || 0);
-      if (amount > bal) {
-        setTransportError("Saldo insuficiente en la tarjeta.");
-        return;
-      }
       actions.addTransportTrip({ date, amount, note });
     } else {
       actions.addTransportRecharge({ date, amount, note });
@@ -516,7 +528,9 @@ export default function Home() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-medium">Transporte</div>
-                <div className="mt-1 text-sm text-zinc-300">Saldo tarjeta: {formatMoney(Number(state.transport?.balance || 0))}</div>
+                <div className="mt-1 text-sm text-zinc-300">
+                  Saldo tarjeta: {mounted ? formatMoney(Number(state.transport?.balance || 0)) : formatMoney(0)}
+                </div>
               </div>
               <button
                 type="button"
@@ -612,6 +626,17 @@ export default function Home() {
               </button>
             </form>
 
+            <div className="mt-4 flex items-center justify-between gap-2">
+              <div className="text-xs text-zinc-400">Calcula tu gasto antes de registrar.</div>
+              <button
+                type="button"
+                className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
+                onClick={() => setTransportCalcOpen(true)}
+              >
+                Calculadora
+              </button>
+            </div>
+
             <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
               <div className="text-sm font-medium">Últimos movimientos</div>
               <div className="mt-2 app-scroll max-h-[240px] overflow-auto pr-1">
@@ -619,7 +644,10 @@ export default function Home() {
                   <div className="text-sm text-zinc-300">Aún no hay movimientos.</div>
                 ) : (
                   <div className="flex flex-col gap-2">
-                    {(state.transport?.events || []).slice(0, 20).map((ev) => (
+                    {(state.transport?.events || [])
+                      .filter((ev): ev is NonNullable<typeof ev> => Boolean(ev && (ev as { id?: unknown }).id))
+                      .slice(0, 20)
+                      .map((ev) => (
                       <div key={ev.id} className="rounded-xl border border-white/10 bg-zinc-950/20 p-3">
                         <div className="flex items-center justify-between gap-2">
                           <div className="text-sm font-semibold">
@@ -672,14 +700,16 @@ export default function Home() {
             onClick={() => setIncomeOpen(true)}
           >
             <div className="text-sm text-zinc-400">Saldo</div>
-            <div className="mt-1 text-3xl font-semibold tracking-tight">{formatMoney(totals.balance)}</div>
-            <div className="mt-2 text-sm text-zinc-400">Ahorro (gastos hechos): {formatMoney(totals.savingsDone)}</div>
+            <div className="mt-1 text-3xl font-semibold tracking-tight">{mounted ? formatMoney(totals.balance) : formatMoney(0)}</div>
+            <div className="mt-2 text-sm text-zinc-400">
+              Ahorro (gastos hechos): {mounted ? formatMoney(totals.savingsDone) : formatMoney(0)}
+            </div>
           </button>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4 shadow-sm">
               <div className="text-sm text-zinc-400">Ingresos</div>
-              <div className="mt-1 text-xl font-semibold">{formatMoney(totals.incomesTotal)}</div>
+              <div className="mt-1 text-xl font-semibold">{mounted ? formatMoney(totals.incomesTotal) : formatMoney(0)}</div>
             </div>
             <button
               type="button"
@@ -687,11 +717,11 @@ export default function Home() {
               onClick={() => setExpenseOpen(true)}
             >
               <div className="text-sm text-zinc-400">Gastos hechos</div>
-              <div className="mt-1 text-xl font-semibold">{formatMoney(totals.expenseDone)}</div>
+              <div className="mt-1 text-xl font-semibold">{mounted ? formatMoney(totals.expenseDone) : formatMoney(0)}</div>
             </button>
             <div className="rounded-2xl border border-white/10 bg-zinc-900/40 p-4 shadow-sm">
               <div className="text-sm text-zinc-400">Ahorro</div>
-              <div className="mt-1 text-xl font-semibold">{formatMoney(totals.savingsDone)}</div>
+              <div className="mt-1 text-xl font-semibold">{mounted ? formatMoney(totals.savingsDone) : formatMoney(0)}</div>
             </div>
             <button
               type="button"
@@ -702,7 +732,7 @@ export default function Home() {
               }}
             >
               <div className="text-sm text-zinc-400">Tarjeta transporte</div>
-              <div className="mt-1 text-xl font-semibold">{formatMoney(Number(state.transport?.balance || 0))}</div>
+              <div className="mt-1 text-xl font-semibold">{mounted ? formatMoney(Number(state.transport?.balance || 0)) : formatMoney(0)}</div>
             </button>
           </div>
         </header>
@@ -1117,6 +1147,152 @@ export default function Home() {
         </div>
       ) : null}
 
+      {transportCalcOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={() => setTransportCalcOpen(false)}>
+          <div
+            className="w-full max-w-lg overflow-auto rounded-2xl border border-white/10 bg-zinc-900/90 p-4 shadow-2xl backdrop-blur"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium">Calculadora (juego)</div>
+                <div className="mt-1 text-xs text-zinc-400">Toca días para activarlos. Activa ida/vuelta y suma extras.</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
+                onClick={() => setTransportCalcOpen(false)}
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-white/10 bg-zinc-950/20 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs text-zinc-400">Total</div>
+                  <div className="text-base font-semibold text-zinc-100">{formatMoney(Number(transportCalcTotal.toFixed(2)))}</div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded-xl bg-zinc-950/40 px-3 py-2 text-sm font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70"
+                  onClick={() => {
+                    setTransportCalcDays(Array.from({ length: 7 }, () => false));
+                    setTransportCalcExtras(Array.from({ length: 7 }, () => 0));
+                    setTransportCalcIda(true);
+                    setTransportCalcVuelta(true);
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={`rounded-xl px-3 py-2 text-sm font-semibold shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 ${
+                    transportCalcIda ? "bg-emerald-500 text-white" : "bg-zinc-950/40 text-zinc-100"
+                  }`}
+                  onClick={() => setTransportCalcIda((v) => !v)}
+                >
+                  Ida
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-xl px-3 py-2 text-sm font-semibold shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 ${
+                    transportCalcVuelta ? "bg-emerald-500 text-white" : "bg-zinc-950/40 text-zinc-100"
+                  }`}
+                  onClick={() => setTransportCalcVuelta((v) => !v)}
+                >
+                  Vuelta
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                {([
+                  { label: "Dom", dow: 0 },
+                  { label: "Lun", dow: 1 },
+                  { label: "Mar", dow: 2 },
+                  { label: "Mié", dow: 3 },
+                  { label: "Jue", dow: 4 },
+                  { label: "Vie", dow: 5 },
+                  { label: "Sáb", dow: 6 },
+                ] as const).map(({ label, dow }) => {
+                  const active = Boolean(transportCalcDays[dow]);
+                  const extras = Math.max(0, Number(transportCalcExtras[dow] || 0));
+                  const baseTrips = (transportCalcIda ? 1 : 0) + (transportCalcVuelta ? 1 : 0);
+                  const trips = active ? baseTrips + extras : 0;
+                  const fare = getTransportTripFareForDow(dow);
+                  const cost = trips * fare;
+
+                  return (
+                    <div
+                      key={dow}
+                      className={`rounded-2xl border p-3 ${active ? "border-emerald-500/30 bg-emerald-500/10" : "border-white/10 bg-zinc-950/20"}`}
+                    >
+                      <button
+                        type="button"
+                        className="w-full text-left"
+                        onClick={() =>
+                          setTransportCalcDays((prev) => {
+                            const next = prev.slice();
+                            next[dow] = !next[dow];
+                            return next;
+                          })
+                        }
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-sm font-semibold">{label}</div>
+                          <div className="text-xs text-zinc-400">Tarifa: {formatMoney(fare)}</div>
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-400">
+                          {active ? `Viajes: ${trips} · Costo: ${formatMoney(Number(cost.toFixed(2)))}` : "Toca para activar"}
+                        </div>
+                      </button>
+
+                      <div className="mt-3 flex items-center justify-between gap-2">
+                        <div className="text-xs text-zinc-400">Extras</div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="rounded-xl bg-zinc-950/40 px-3 py-1.5 text-xs font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 disabled:opacity-40"
+                            disabled={!active || extras <= 0}
+                            onClick={() =>
+                              setTransportCalcExtras((prev) => {
+                                const next = prev.slice();
+                                next[dow] = Math.max(0, Number(next[dow] || 0) - 1);
+                                return next;
+                              })
+                            }
+                          >
+                            -
+                          </button>
+                          <div className="min-w-6 text-center text-sm font-semibold">{extras}</div>
+                          <button
+                            type="button"
+                            className="rounded-xl bg-zinc-950/40 px-3 py-1.5 text-xs font-semibold text-zinc-100 shadow-sm ring-1 ring-white/10 hover:bg-zinc-950/70 disabled:opacity-40"
+                            disabled={!active}
+                            onClick={() =>
+                              setTransportCalcExtras((prev) => {
+                                const next = prev.slice();
+                                next[dow] = Math.max(0, Number(next[dow] || 0) + 1);
+                                return next;
+                              })
+                            }
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {incomeOpen ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={() => setIncomeOpen(false)}>
           <div
@@ -1125,7 +1301,7 @@ export default function Home() {
           >
             <div className="text-sm font-medium">Ingreso</div>
             <div className="mt-1 text-sm text-zinc-300">
-              Saldo actual: {formatMoney(totals.balance)} · Puedes agregar un ingreso o establecer un saldo inicial.
+              Saldo actual: {mounted ? formatMoney(totals.balance) : formatMoney(0)} · Puedes agregar un ingreso o establecer un saldo inicial.
             </div>
             <form className="mt-3 grid gap-2" onSubmit={onSubmitIncome}>
               <input
